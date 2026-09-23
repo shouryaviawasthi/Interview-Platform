@@ -1,5 +1,6 @@
 const roomService = require("../services/socket/room.service");
 const interviewModel = require("../models/interview.model");
+const liveTranscript = require("../services/transcription/liveTranscription.service");
 
 /**
  * Register all interview socket events on the io instance.
@@ -71,6 +72,76 @@ const registerInterviewEvents = (io) => {
     // ─────────────────────────────────────────────
     socket.on("leave-room", () => {
       handleLeaveRoom(socket, io);
+    });
+
+    // ─────────────────────────────────────────────
+    // WebRTC Signaling Events
+    // ─────────────────────────────────────────────
+    socket.on("webrtc-offer", ({ interviewId, offer }) => {
+      if (interviewId && offer) {
+        socket.to(interviewId).emit("webrtc-offer", { offer });
+      }
+    });
+
+    socket.on("webrtc-answer", ({ interviewId, answer }) => {
+      if (interviewId && answer) {
+        socket.to(interviewId).emit("webrtc-answer", { answer });
+      }
+    });
+
+    socket.on("webrtc-ice-candidate", ({ interviewId, candidate }) => {
+      if (interviewId && candidate) {
+        socket.to(interviewId).emit("webrtc-ice-candidate", { candidate });
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // Live Transcription Events (Phase 6)
+    // ─────────────────────────────────────────────
+
+    /**
+     * EVENT: start-live-transcript
+     * Payload: { interviewId }
+     * Only the interviewer triggers this when the interview goes live.
+     * Creates a Deepgram live connection for the room.
+     */
+    socket.on("start-live-transcript", async ({ interviewId } = {}) => {
+      if (!interviewId) return;
+      try {
+        await liveTranscript.startSession(interviewId, io);
+        socket.emit("live-transcript-started", { interviewId });
+        console.log(`[Socket] Live transcript started for ${interviewId}`);
+      } catch (err) {
+        console.error(`[Socket] Failed to start live transcript for ${interviewId}:`, err.message);
+        socket.emit("live-transcript-error", { message: "Could not start live transcription: " + err.message });
+      }
+    });
+
+    /**
+     * EVENT: audio-chunk
+     * Payload: { interviewId, chunk: ArrayBuffer | Buffer, speaker: "interviewer"|"candidate" }
+     * Both interviewer and candidate send their mic audio chunks.
+     */
+    socket.on("audio-chunk", ({ interviewId, chunk, speaker } = {}) => {
+      if (!interviewId || !chunk) return;
+      try {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        liveTranscript.sendAudioChunk(interviewId, buffer, speaker);
+      } catch (err) {
+        // Silently ignore send errors — non-fatal
+      }
+    });
+
+    /**
+     * EVENT: stop-live-transcript
+     * Payload: { interviewId }
+     * Called when the interview ends. Closes Deepgram connection.
+     */
+    socket.on("stop-live-transcript", async ({ interviewId } = {}) => {
+      if (!interviewId) return;
+      const finalSegments = await liveTranscript.stopSession(interviewId);
+      socket.emit("live-transcript-stopped", { interviewId, segmentCount: finalSegments.length });
+      console.log(`[Socket] Live transcript stopped for ${interviewId}, ${finalSegments.length} final segments`);
     });
 
     // ─────────────────────────────────────────────

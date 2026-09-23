@@ -5,6 +5,8 @@ const pdfParse = require("pdf-parse");
 
 const interviewModel = require("../../models/interview.model");
 const resumeModel = require("../../models/resume.model");
+const roomService = require("../socket/room.service");
+const { getIO } = require("../../sockets/socket");
 
 /**
  * Create a new interview
@@ -35,24 +37,44 @@ const createInterview = async (interviewerId, body) => {
 };
 
 /**
- * Get all interviews for logged-in interviewer
+ * Get paginated & filtered interviews for logged-in user (role-aware)
  */
-const getAllInterviews = async (interviewerId) => {
-  const interviews = await interviewModel.getInterviewsByInterviewer(interviewerId);
-  return interviews;
+const getAllInterviews = async (user, options = {}) => {
+  const userId = typeof user === "object" ? user.id : user;
+  const role = typeof user === "object" ? user.role : "interviewer";
+  const email = typeof user === "object" ? user.email : null;
+
+  return await interviewModel.getPaginatedInterviews({
+    userId,
+    role,
+    email,
+    search: options.search || "",
+    status: options.status || "all",
+    reportStatus: options.reportStatus || "all",
+    sort: options.sort || "newest",
+    page: options.page || 1,
+    limit: options.limit || 20,
+  });
 };
 
 /**
- * Get single interview by ID — verifies ownership
+ * Get single interview by ID — verifies authorization (Interviewer or Candidate)
  */
-const getInterviewById = async (interviewId, interviewerId) => {
+const getInterviewById = async (interviewId, user) => {
   const interview = await interviewModel.getInterviewById(interviewId);
 
   if (!interview) {
     throw new Error("Interview not found");
   }
 
-  if (interview.interviewer_id !== interviewerId) {
+  const userId = typeof user === "object" ? user.id : user;
+  const role = typeof user === "object" ? user.role : "interviewer";
+  const email = typeof user === "object" ? user.email : null;
+
+  const isOwner = interview.interviewer_id === userId;
+  const isCandidate = role === "candidate" && interview.candidate_email === email;
+
+  if (!isOwner && !isCandidate) {
     throw new Error("Access denied");
   }
 
@@ -149,17 +171,169 @@ const uploadResume = async (interviewId, interviewerId, file) => {
 };
 
 /**
- * Get dashboard stats for logged-in interviewer
+ * Get dashboard stats for logged-in user (role-aware: interviewer or candidate)
  */
-const getDashboard = async (interviewerId) => {
-  const stats = await interviewModel.getDashboardStats(interviewerId);
+const getDashboard = async (user) => {
+  const userId = typeof user === "object" ? user.id : user;
+  const role = typeof user === "object" ? user.role : "interviewer";
+  const email = typeof user === "object" ? user.email : null;
+
+  return await interviewModel.getDashboardStats({ userId, role, email });
+};
+
+/**
+ * Start an interview session.
+ * Only the interviewer who owns the interview may start it.
+ * Interview must be in 'scheduled' status.
+ */
+const startInterview = async (interviewId, interviewerId) => {
+  // 1. Fetch + verify ownership
+  const interview = await interviewModel.getInterviewById(interviewId);
+  if (!interview) {
+    const err = new Error("Interview not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (interview.interviewer_id !== interviewerId) {
+    const err = new Error("You are not authorized to start this interview");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // 2. Guard invalid state transitions
+  if (interview.status === "live") {
+    const err = new Error("Interview is already live");
+    err.statusCode = 409;
+    throw err;
+  }
+  if (interview.status === "completed") {
+    const err = new Error("Interview is already completed and cannot be restarted");
+    err.statusCode = 409;
+    throw err;
+  }
+  if (interview.status === "cancelled") {
+    const err = new Error("Interview has been cancelled");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // 3. Conditional UPDATE (only succeeds if still 'scheduled' — prevents races)
+  const updated = await interviewModel.startInterview(interviewId);
+  if (!updated) {
+    // Another request won the race or status changed between fetch and update
+    const err = new Error("Interview could not be started. It may have already changed status.");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // 4. Broadcast to all room participants via Socket.IO
+  try {
+    const io = getIO();
+    io.to(interviewId).emit("interview-started", {
+      interviewId,
+      startedAt: updated.started_at,
+      status: updated.status,
+    });
+  } catch (socketErr) {
+    console.error("[Socket] Failed to emit interview-started:", socketErr.message);
+  }
+
+  return updated;
+};
+
+/**
+ * End a live interview session.
+ * Only the interviewer who owns the interview may end it.
+ * Interview must be in 'live' status.
+ */
+const endInterview = async (interviewId, interviewerId) => {
+  // 1. Fetch + verify ownership
+  const interview = await interviewModel.getInterviewById(interviewId);
+  if (!interview) {
+    const err = new Error("Interview not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (interview.interviewer_id !== interviewerId) {
+    const err = new Error("You are not authorized to end this interview");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  // 2. Guard: must be live to end
+  if (interview.status !== "live") {
+    const err = new Error(
+      interview.status === "completed"
+        ? "Interview is already completed"
+        : `Interview cannot be ended because its status is '${interview.status}'`
+    );
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // 3. Conditional UPDATE (live → completed)
+  const updated = await interviewModel.endInterview(interviewId);
+  if (!updated) {
+    const err = new Error("Interview could not be ended. Status may have changed.");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  // 4. Calculate duration in seconds (authoritative)
+  const durationSeconds =
+    updated.started_at && updated.ended_at
+      ? Math.round((new Date(updated.ended_at) - new Date(updated.started_at)) / 1000)
+      : null;
+
+  // 5. Broadcast to all room participants
+  try {
+    const io = getIO();
+    io.to(interviewId).emit("interview-ended", {
+      interviewId,
+      endedAt: updated.ended_at,
+      startedAt: updated.started_at,
+      durationSeconds,
+      status: updated.status,
+    });
+  } catch (socketErr) {
+    console.error("[Socket] Failed to emit interview-ended:", socketErr.message);
+  }
+
+  return { ...updated, durationSeconds };
+};
+
+/**
+ * Get session state: DB timestamps + in-memory participant presence.
+ * Used by the frontend on page load/refresh to restore live state.
+ */
+const getSession = async (interviewId, interviewerId) => {
+  const interview = await interviewModel.getInterviewById(interviewId);
+  if (!interview) {
+    const err = new Error("Interview not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (interview.interviewer_id !== interviewerId) {
+    const err = new Error("Access denied");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const session = await interviewModel.getSessionById(interviewId);
+
+  // Merge in-memory presence from Socket.IO room
+  const participants = roomService.getParticipants(interviewId);
+  const interviewerConnected = participants.some((p) => p.role === "interviewer");
+  const candidateConnected = participants.some((p) => p.role === "candidate");
 
   return {
-    total:     parseInt(stats.total),
-    scheduled: parseInt(stats.scheduled),
-    live:      parseInt(stats.live),
-    completed: parseInt(stats.completed),
-    cancelled: parseInt(stats.cancelled),
+    interviewId: session.id,
+    status: session.status,
+    startedAt: session.started_at,
+    endedAt: session.ended_at,
+    durationSeconds: session.duration_seconds,
+    interviewer: { connected: interviewerConnected },
+    candidate: { connected: candidateConnected },
   };
 };
 
@@ -172,4 +346,7 @@ module.exports = {
   joinInterview,
   uploadResume,
   getDashboard,
+  startInterview,
+  endInterview,
+  getSession,
 };

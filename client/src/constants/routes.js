@@ -7,12 +7,28 @@ export const ROUTES = {
   INTERVIEW_NEW: "/interviews/new",
   INTERVIEW_DETAIL: "/interviews/:id",
   interviewDetail: (id) => `/interviews/${id}`,
+  TRANSCRIPT: "/interviews/:id/transcript",
+  transcript: (id) => `/interviews/${id}/transcript`,
+  CANDIDATE_REPORT: "/interviews/:id/candidate-report",
+  candidateReport: (id) => `/interviews/${id}/candidate-report`,
+  INTERVIEWER_REPORT: "/interviews/:id/interviewer-report",
+  interviewerReport: (id) => `/interviews/${id}/interviewer-report`,
+  ANALYTICS: "/interviews/:id/analytics",
+  analytics: (id) => `/interviews/${id}/analytics`,
+  // Standalone pages (no sidebar layout)
+  INTERVIEW_END_DASHBOARD: "/interviews/:id/end",
+  interviewEndDashboard: (id) => `/interviews/${id}/end`,
+  CANDIDATE_REPORT_SIMPLE: "/report/candidate/:id",
+  candidateReportSimple: (id) => `/report/candidate/${id}`,
+  INTERVIEWER_REPORT_SIMPLE: "/report/interviewer/:id",
+  interviewerReportSimple: (id) => `/report/interviewer/${id}`,
   JOIN: "/interview/join/:token",
   join: (token) => `/interview/join/${token}`,
   ROOM: "/interview/room/:token",
   room: (token) => `/interview/room/${token}`,
   NOT_FOUND: "*",
 };
+
 
 export const INTERVIEW_STATUS = {
   scheduled: {

@@ -3,13 +3,14 @@ import { FiGrid, FiVideo, FiPlusCircle, FiLogOut } from "react-icons/fi";
 import { ROUTES } from "../../constants/routes";
 import { useAuth } from "../../context/AuthContext";
 
-const links = [
-  { to: ROUTES.DASHBOARD, label: "Overview", icon: FiGrid },
-  { to: ROUTES.INTERVIEWS, label: "Interviews", icon: FiVideo },
-];
-
 const Sidebar = ({ onNavigate }) => {
   const { user, logout } = useAuth();
+  const isCandidate = user?.role === "candidate";
+
+  const links = [
+    { to: ROUTES.DASHBOARD, label: isCandidate ? "My Dashboard" : "Overview", icon: FiGrid },
+    { to: ROUTES.INTERVIEWS, label: isCandidate ? "My Interviews" : "Interviews", icon: FiVideo },
+  ];
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-ink-100 bg-white/70 backdrop-blur-xl">
@@ -53,14 +54,16 @@ const Sidebar = ({ onNavigate }) => {
           </NavLink>
         ))}
 
-        <NavLink
-          to={ROUTES.INTERVIEW_NEW}
-          onClick={onNavigate}
-          className="mt-4 flex items-center gap-3 rounded-xl border border-dashed border-lav-300 px-3.5 py-2.5 text-sm font-semibold text-lav-700 hover:bg-lav-100/70 transition-colors"
-        >
-          <FiPlusCircle className="h-4.5 w-4.5" />
-          Schedule interview
-        </NavLink>
+        {!isCandidate && (
+          <NavLink
+            to={ROUTES.INTERVIEW_NEW}
+            onClick={onNavigate}
+            className="mt-4 flex items-center gap-3 rounded-xl border border-dashed border-lav-300 px-3.5 py-2.5 text-sm font-semibold text-lav-700 hover:bg-lav-100/70 transition-colors"
+          >
+            <FiPlusCircle className="h-4.5 w-4.5" />
+            Schedule interview
+          </NavLink>
+        )}
       </nav>
 
       <div className="border-t border-ink-100 px-3 py-4">

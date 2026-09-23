@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { FiMic, FiMicOff, FiVideo, FiVideoOff } from "react-icons/fi";
 
 const ParticipantTile = ({
@@ -5,10 +6,19 @@ const ParticipantTile = ({
   role,
   isSelf = false,
   videoRef,
+  remoteStream,
   camOn = true,
   micOn = true,
   mediaStatus = "ready",
 }) => {
+  const remoteVideoRef = useRef(null);
+
+  useEffect(() => {
+    if (!isSelf && remoteStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [isSelf, remoteStream]);
+
   return (
     <div className="group relative aspect-video overflow-hidden rounded-2xl bg-ink-900 shadow-[var(--shadow-soft)]">
       {isSelf && camOn && mediaStatus === "ready" ? (
@@ -18,6 +28,13 @@ const ParticipantTile = ({
           muted
           playsInline
           className="h-full w-full scale-x-[-1] object-cover"
+        />
+      ) : !isSelf && remoteStream ? (
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="h-full w-full object-cover"
         />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">

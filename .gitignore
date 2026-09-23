@@ -118,4 +118,12 @@ __pycache__/
 # SQLite local database
 *.db
 *.sqlite
+
+# User-uploaded runtime files
+server/src/uploads/*
+server/src/uploads/resumes/*
+!server/src/uploads/resumes/.gitkeep
+
+# Accidental command-output artifact
+tatus --ignored
 *.sqlite3

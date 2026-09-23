@@ -12,6 +12,10 @@ import {
   FiVideo,
   FiSave,
   FiX,
+  FiClock,
+  FiCalendar,
+  FiDownload,
+  FiBarChart2,
 } from "react-icons/fi";
 import toast from "react-hot-toast";
 import Topbar from "../components/layout/Topbar";
@@ -27,15 +31,26 @@ import {
   updateInterview,
   deleteInterview,
   uploadResume,
+  getTranscript,
+  getCandidateReport,
+  getInterviewerReport,
+  generateReports,
+  getAnalytics,
+  generateAnalytics,
+  downloadCandidateReportPdf,
+  downloadInterviewerReportPdf,
 } from "../services/interview.service";
 import { ROUTES } from "../constants/routes";
 import { SERVER_URL } from "../lib/axios";
+import { useAuth } from "../context/AuthContext";
 
 const InterviewDetail = () => {
   const { onMenuClick } = useOutletContext();
   const { id } = useParams();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const { user } = useAuth();
+  const isCandidate = user?.role === "candidate";
 
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +62,12 @@ const InterviewDetail = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [resume, setResume] = useState(null);
+  const [transcriptStatus, setTranscriptStatus] = useState(null);
+  const [candidateReportStatus, setCandidateReportStatus] = useState(null);
+  const [interviewerReportStatus, setInterviewerReportStatus] = useState(null);
+  const [analyticsStatus, setAnalyticsStatus] = useState(null);
+  const [generatingReports, setGeneratingReports] = useState(false);
+  const [generatingAnalytics, setGeneratingAnalytics] = useState(false);
 
   const joinLink = interview
     ? `${window.location.origin}${ROUTES.join(interview.join_token)}`
@@ -73,6 +94,43 @@ const InterviewDetail = () => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Load transcript, report, and analytics statuses for completed interviews
+  useEffect(() => {
+    if (!interview) return;
+    if (!['completed', 'live'].includes(interview.status)) return;
+    getTranscript(id).then((t) => setTranscriptStatus(t?.status ?? null)).catch(() => {});
+    getCandidateReport(id).then((r) => setCandidateReportStatus(r?.status ?? null)).catch(() => {});
+    getInterviewerReport(id).then((r) => setInterviewerReportStatus(r?.status ?? null)).catch(() => {});
+    getAnalytics(id).then((a) => setAnalyticsStatus(a?.status ?? null)).catch(() => {});
+  }, [id, interview]);
+
+  const handleGenerateReports = async () => {
+    setGeneratingReports(true);
+    try {
+      await generateReports(id);
+      toast.success('AI report generation started!');
+      getCandidateReport(id).then((r) => setCandidateReportStatus(r?.status ?? 'processing')).catch(() => {});
+      getInterviewerReport(id).then((r) => setInterviewerReportStatus(r?.status ?? 'processing')).catch(() => {});
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Could not start generation.');
+    } finally {
+      setGeneratingReports(false);
+    }
+  };
+
+  const handleGenerateAnalytics = async () => {
+    setGeneratingAnalytics(true);
+    try {
+      await generateAnalytics(id);
+      toast.success('Analytics generation started!');
+      setAnalyticsStatus('processing');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Could not start analytics.');
+    } finally {
+      setGeneratingAnalytics(false);
+    }
+  };
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -173,7 +231,241 @@ const InterviewDetail = () => {
               </Button>
             </div>
           </div>
+          {/* Transcript quick-link */}
+          {(transcriptStatus || interview.status === 'completed') && (
+            <div className="mt-3 flex items-center justify-between rounded-xl border border-ink-100 bg-lav-50/40 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-ink-600">
+                <FiFileText className="h-4 w-4 text-lav-500" />
+                <span>
+                  Transcript
+                  {transcriptStatus === 'completed' && <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">Ready</span>}
+                  {transcriptStatus === 'processing' && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700">Processing</span>}
+                  {transcriptStatus === 'failed' && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-600">Failed</span>}
+                  {transcriptStatus === 'uploaded' && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">Uploaded</span>}
+                  {!transcriptStatus && <span className="ml-2 text-ink-400">Not started</span>}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(ROUTES.transcript(id))}
+              >
+                View Transcript
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Pipeline Processing Tracker — completed interviews */}
+        {interview.status === 'completed' && (
+          <div className="card-surface mb-5 p-5">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">
+              Processing Pipeline
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 text-xs">
+              <div className="flex items-center gap-2 rounded-xl bg-ink-50 p-2.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <div>
+                  <p className="font-semibold text-ink-800">1. Audio</p>
+                  <p className="text-[10px] text-ink-400">Recorded</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-xl bg-ink-50 p-2.5">
+                <span className={`h-2 w-2 rounded-full ${
+                  transcriptStatus === 'completed' ? 'bg-emerald-500' :
+                  transcriptStatus === 'processing' ? 'bg-blue-500 animate-pulse' :
+                  transcriptStatus === 'failed' ? 'bg-red-500' : 'bg-ink-300'
+                }`} />
+                <div>
+                  <p className="font-semibold text-ink-800">2. Transcript</p>
+                  <p className="text-[10px] text-ink-400 capitalize">{transcriptStatus || 'Waiting'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-xl bg-ink-50 p-2.5">
+                <span className={`h-2 w-2 rounded-full ${
+                  analyticsStatus === 'completed' ? 'bg-emerald-500' :
+                  analyticsStatus === 'processing' ? 'bg-blue-500 animate-pulse' :
+                  analyticsStatus === 'failed' ? 'bg-red-500' : 'bg-ink-300'
+                }`} />
+                <div>
+                  <p className="font-semibold text-ink-800">3. Analytics</p>
+                  <p className="text-[10px] text-ink-400 capitalize">{analyticsStatus || 'Waiting'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-xl bg-ink-50 p-2.5">
+                <span className={`h-2 w-2 rounded-full ${
+                  candidateReportStatus === 'completed' ? 'bg-emerald-500' :
+                  candidateReportStatus === 'processing' ? 'bg-blue-500 animate-pulse' :
+                  candidateReportStatus === 'failed' ? 'bg-red-500' : 'bg-ink-300'
+                }`} />
+                <div>
+                  <p className="font-semibold text-ink-800">4. AI Reports</p>
+                  <p className="text-[10px] text-ink-400 capitalize">{candidateReportStatus || 'Waiting'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-xl bg-ink-50 p-2.5">
+                <span className={`h-2 w-2 rounded-full ${
+                  candidateReportStatus === 'completed' ? 'bg-emerald-500' : 'bg-ink-300'
+                }`} />
+                <div>
+                  <p className="font-semibold text-ink-800">5. PDF Ready</p>
+                  <p className="text-[10px] text-ink-400">{candidateReportStatus === 'completed' ? 'Available' : 'Waiting'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Reports — completed interviews only */}
+        {interview.status === 'completed' && (
+          <div className="card-surface mb-5 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">AI Reports</p>
+              {!isCandidate && transcriptStatus === 'completed' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  isLoading={generatingReports}
+                  onClick={handleGenerateReports}
+                >
+                  Generate Reports
+                </Button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {/* Candidate Report */}
+              <div className="flex items-center justify-between rounded-xl border border-ink-100 bg-lav-50/40 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-ink-600">
+                  <FiFileText className="h-4 w-4 text-lav-500" />
+                  <span>Candidate Report
+                    {candidateReportStatus === 'completed' && <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">Ready</span>}
+                    {candidateReportStatus === 'processing' && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700">Processing</span>}
+                    {candidateReportStatus === 'failed' && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-600">Failed</span>}
+                    {!candidateReportStatus && <span className="ml-2 text-ink-400">Not started</span>}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {candidateReportStatus === 'completed' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={FiDownload}
+                      onClick={() => downloadCandidateReportPdf(id, interview?.candidate_name)}
+                    >
+                      PDF
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => navigate(ROUTES.candidateReport(id))}>
+                    View
+                  </Button>
+                </div>
+              </div>
+              {/* Interviewer Report */}
+              {!isCandidate && (
+                <div className="flex items-center justify-between rounded-xl border border-ink-100 bg-lav-50/40 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-ink-600">
+                    <FiFileText className="h-4 w-4 text-lav-500" />
+                    <span>Interviewer Report
+                      {interviewerReportStatus === 'completed' && <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">Ready</span>}
+                      {interviewerReportStatus === 'processing' && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700">Processing</span>}
+                      {interviewerReportStatus === 'failed' && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-600">Failed</span>}
+                      {!interviewerReportStatus && <span className="ml-2 text-ink-400">Not started</span>}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {interviewerReportStatus === 'completed' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={FiDownload}
+                        onClick={() => downloadInterviewerReportPdf(id, "Interviewer")}
+                      >
+                        PDF
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => navigate(ROUTES.interviewerReport(id))}>
+                      View
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {/* Interview Analytics */}
+              <div className="flex items-center justify-between rounded-xl border border-ink-100 bg-lav-50/40 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-ink-600">
+                  <FiBarChart2 className="h-4 w-4 text-lav-500" />
+                  <span>Advanced Analytics
+                    {analyticsStatus === 'completed' && <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">Ready</span>}
+                    {analyticsStatus === 'processing' && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-700">Processing</span>}
+                    {analyticsStatus === 'failed' && <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-600">Failed</span>}
+                    {!analyticsStatus && <span className="ml-2 text-ink-400">Not started</span>}
+                  </span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => navigate(ROUTES.analytics(id))}>
+                  View
+                </Button>
+              </div>
+              {transcriptStatus !== 'completed' && (
+                <p className="text-xs text-ink-400 mt-1">Complete transcript assignment before generating reports and analytics.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Session timing info (live / completed) */}
+        {(interview.started_at || interview.ended_at) && (
+          <div className="card-surface mb-5 p-6">
+            <h3 className="mb-4 font-display text-base font-semibold text-ink-900">Session Info</h3>
+            <dl className="space-y-4">
+              {interview.started_at && (
+                <div className="flex items-start gap-3">
+                  <FiClock className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
+                  <div>
+                    <dt className="text-xs font-medium text-ink-400">Started at</dt>
+                    <dd className="text-sm text-ink-800">
+                      {new Date(interview.started_at).toLocaleString()}
+                    </dd>
+                  </div>
+                </div>
+              )}
+              {interview.ended_at && (
+                <div className="flex items-start gap-3">
+                  <FiCalendar className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
+                  <div>
+                    <dt className="text-xs font-medium text-ink-400">Ended at</dt>
+                    <dd className="text-sm text-ink-800">
+                      {new Date(interview.ended_at).toLocaleString()}
+                    </dd>
+                  </div>
+                </div>
+              )}
+              {interview.started_at && interview.ended_at && (() => {
+                const secs = Math.round(
+                  (new Date(interview.ended_at) - new Date(interview.started_at)) / 1000
+                );
+                const h = Math.floor(secs / 3600);
+                const m = Math.floor((secs % 3600) / 60);
+                const s = secs % 60;
+                const parts = [];
+                if (h) parts.push(`${h}h`);
+                if (m) parts.push(`${m}m`);
+                if (s || !parts.length) parts.push(`${s}s`);
+                return (
+                  <div className="flex items-start gap-3">
+                    <FiClock className="mt-0.5 h-4 w-4 shrink-0 text-lav-500" />
+                    <div>
+                      <dt className="text-xs font-medium text-ink-400">Duration</dt>
+                      <dd className="text-sm font-semibold text-ink-800">{parts.join(" ")}</dd>
+                    </div>
+                  </div>
+                );
+              })()}
+            </dl>
+          </div>
+        )}
 
         {/* Details / edit form */}
         <div className="card-surface mb-5 p-6">

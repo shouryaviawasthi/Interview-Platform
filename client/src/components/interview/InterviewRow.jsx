@@ -12,7 +12,18 @@ const formatDate = (iso) => {
   });
 };
 
+const formatTime = (s) => {
+  if (s == null || isNaN(s)) return null;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+};
+
 const InterviewRow = ({ interview }) => {
+  const score = interview.candidate_score ?? interview.candidateScore;
+  const reportStatus = interview.candidate_report_status ?? interview.candidateReportStatus;
+  const duration = interview.duration_seconds ?? interview.durationSeconds;
+
   return (
     <Link
       to={ROUTES.interviewDetail(interview.id)}
@@ -28,16 +39,30 @@ const InterviewRow = ({ interview }) => {
             {interview.candidate_name}
           </p>
           <StatusBadge status={interview.status} pulse />
+
+          {score != null && (
+            <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs font-bold text-emerald-700">
+              {score}/100
+            </span>
+          )}
+
+          {reportStatus === "completed" && score == null && (
+            <span className="rounded-full bg-lav-50 border border-lav-200 px-2 py-0.5 text-[10px] font-semibold text-lav-700 uppercase">
+              Report Ready
+            </span>
+          )}
         </div>
         <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-ink-400">
           <FiMail className="h-3 w-3 shrink-0" />
           {interview.candidate_email}
         </p>
-        <p className="mt-1.5 truncate text-sm text-ink-500">{interview.job_description}</p>
+        <p className="mt-1 truncate text-xs text-ink-500 line-clamp-1">{interview.job_description}</p>
       </div>
 
       <div className="hidden shrink-0 text-right sm:block">
-        <p className="text-xs font-medium text-ink-400">Created</p>
+        <p className="text-xs font-medium text-ink-400">
+          {duration ? formatTime(duration) : "Created"}
+        </p>
         <p className="text-sm font-medium text-ink-700">{formatDate(interview.created_at)}</p>
       </div>
 

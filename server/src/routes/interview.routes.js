@@ -23,4 +23,9 @@ router.delete("/:id",protect, interviewController.deleteInterview);
 // Resume upload
 router.post("/:id/resume", protect, upload.single("resume"), interviewController.uploadResume);
 
+// Session management — interviewer only
+router.post("/:id/start",   protect, interviewController.startInterview);
+router.post("/:id/end",     protect, interviewController.endInterview);
+router.get("/:id/session",  protect, interviewController.getSession);
+
 module.exports = router;

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 export const useLocalMedia = ({ enabled }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const [stream, setStream] = useState(null);
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
   const [status, setStatus] = useState("idle"); // idle | requesting | ready | denied
@@ -20,6 +21,7 @@ export const useLocalMedia = ({ enabled }) => {
           return;
         }
         streamRef.current = stream;
+        setStream(stream);
         if (videoRef.current) videoRef.current.srcObject = stream;
         setStatus("ready");
       } catch {
@@ -33,8 +35,17 @@ export const useLocalMedia = ({ enabled }) => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      setStream(null);
     };
   }, [enabled]);
+
+  // The <video> element is conditionally rendered only when status === "ready".
+  // srcObject must be set AFTER that re-render mounts the element.
+  useEffect(() => {
+    if (status === "ready" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [status]);
 
   const toggleCam = useCallback(() => {
     const track = streamRef.current?.getVideoTracks()?.[0];
@@ -52,5 +63,5 @@ export const useLocalMedia = ({ enabled }) => {
     }
   }, []);
 
-  return { videoRef, camOn, micOn, status, toggleCam, toggleMic };
+  return { videoRef, localStream: stream, camOn, micOn, status, toggleCam, toggleMic };
 };

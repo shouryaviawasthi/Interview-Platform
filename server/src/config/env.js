@@ -10,4 +10,9 @@ module.exports = {
 
   JWT_SECRET: process.env.JWT_SECRET || "your_jwt_secret_key",
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "1d",
+
+  DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY || "",
+
+  GROQ_API_KEY: process.env.GROQ_API_KEY || "",
+  GROQ_MODEL:   process.env.GROQ_MODEL   || "llama-3.1-70b-versatile",
 };
