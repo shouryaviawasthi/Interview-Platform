@@ -453,15 +453,15 @@ const InterviewRoom = () => {
       {/* ── Video grid ─────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 sm:p-6">
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 sm:grid-cols-2">
-          {roomUser && (
-            <ParticipantTile
-              name={roomUser.name}
-              role={roomUser.role}
-              isSelf
-              videoRef={videoRef}
-              camOn={camOn}
-              micOn={micOn}
-              mediaStatus={mediaStatus}
+            {roomUser && (
+                <ParticipantTile
+                  name={roomUser.name}
+                  role={roomUser.role}
+                  isSelf
+                  videoRef={videoRef}
+                  camOn={camOn}
+                  micOn={micOn}
+                  mediaStatus={mediaStatus}
             />
           )}
           {others.map((p) => (
@@ -471,8 +471,8 @@ const InterviewRoom = () => {
             <div className="flex aspect-video flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 text-center">
               <FiUsers className="h-6 w-6 text-white/30" />
               <p className="text-sm font-medium text-white/50">Waiting for others to join&hellip;</p>
-            </div>
-          )}
+              </div>
+            )}
         </div>
 
         {/* Activity feed */}

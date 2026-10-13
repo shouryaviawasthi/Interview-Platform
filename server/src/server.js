@@ -109,6 +109,17 @@ const startServer = async () => {
     // Initialize Socket.IO
     initializeSocket(server);
 
+    server.once("error", (error) => {
+      if (error.code === "EADDRINUSE") {
+        logger.error(
+          `Port ${env.PORT} is already in use. Stop the process using it or set a different PORT in server/.env.`
+        );
+      } else {
+        logger.error("Failed to start server:", error.message);
+      }
+      process.exit(1);
+    });
+
     // Start Server
     server.listen(env.PORT, () => {
       logger.info(

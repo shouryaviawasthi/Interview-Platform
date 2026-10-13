@@ -253,6 +253,18 @@ npm run dev
 
 The Vite client normally runs at `http://localhost:5173` and the API normally runs at `http://localhost:5000`.
 
+If the API reports that port `5000` is already in use, check for another server
+instance before starting a second one. In PowerShell, identify the process with:
+
+```powershell
+Get-NetTCPConnection -LocalPort 5000 -State Listen |
+  Select-Object LocalAddress, LocalPort, OwningProcess
+```
+
+Stop that process only if you recognize it as a stale server instance. Otherwise,
+choose another API port in `server/.env` and set `VITE_API_URL` in the client to
+the matching URL (for example, `http://localhost:5001/api`).
+
 ## Available Scripts
 
 ### Client

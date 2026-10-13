@@ -8,11 +8,13 @@ lavender design system (Space Grotesk / Inter / JetBrains Mono).
 ```bash
 cd client
 npm install
-cp .env.example .env   # adjust VITE_API_URL / VITE_SERVER_URL if your backend isn't on :5000
+cp .env.example .env   # set VITE_API_URL if your backend isn't on :5000
 npm run dev
 ```
 
-The app expects the backend running at `http://localhost:5000` by default (see `.env.example`).
+In development, `/api` is proxied to `http://localhost:5000` by Vite. For a
+deployed client, set `VITE_API_URL` to the backend API URL (for example,
+`https://api.example.com/api`) before building.
 
 ## One required backend change
 

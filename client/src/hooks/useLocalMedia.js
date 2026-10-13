@@ -33,9 +33,9 @@ export const useLocalMedia = ({ enabled }) => {
 
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      setStream(null);
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        setStream(null);
     };
   }, [enabled]);
 
