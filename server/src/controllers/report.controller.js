@@ -110,17 +110,14 @@ const generateReports = async (req, res, next) => {
 const getCandidateReport = async (req, res, next) => {
   try {
     const interviewId = req.params.id;
-    const interviewerId = req.user.id;
 
     const interview = await interviewModel.getInterviewById(interviewId);
     if (!interview) {
       return res.status(404).json({ success: false, message: "Interview not found." });
     }
 
-    const isOwner = interview.interviewer_id === req.user.id;
-    const isCandidate = req.user.role === "candidate" && interview.candidate_email === req.user.email;
-
-    if (!isOwner && !isCandidate) {
+    // Only allow interviewer access via JWT - candidates use public routes with tokens
+    if (interview.interviewer_id !== req.user.id) {
       return res.status(403).json({ success: false, message: "Access denied." });
     }
 
@@ -255,17 +252,14 @@ const retryReports = async (req, res, next) => {
 const downloadCandidatePdf = async (req, res, next) => {
   try {
     const interviewId = req.params.id;
-    const interviewerId = req.user.id;
 
     const interview = await interviewModel.getInterviewById(interviewId);
     if (!interview) {
       return res.status(404).json({ success: false, message: "Interview not found." });
     }
 
-    const isOwner = interview.interviewer_id === req.user.id;
-    const isCandidate = req.user.role === "candidate" && interview.candidate_email === req.user.email;
-
-    if (!isOwner && !isCandidate) {
+    // Only allow interviewer access via JWT - candidates use public routes with tokens
+    if (interview.interviewer_id !== req.user.id) {
       return res.status(403).json({ success: false, message: "Access denied." });
     }
 
