@@ -32,9 +32,20 @@ const NewInterviewPage = () => {
     }
   };
 
+  const candidateJoinLink = (() => {
+    if (!created?.interview?.join_token) return "";
+    if (window.location.origin && !window.location.origin.includes("localhost") && !window.location.origin.includes("127.0.0.1")) {
+      return `${window.location.origin}/interview/join/${created.interview.join_token}`;
+    }
+    if (created.joinLink && !created.joinLink.includes("localhost") && !created.joinLink.includes("127.0.0.1")) {
+      return created.joinLink;
+    }
+    return `${window.location.origin}/interview/join/${created.interview.join_token}`;
+  })();
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(created.joinLink);
+      await navigator.clipboard.writeText(candidateJoinLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (_err) {
@@ -70,7 +81,7 @@ const NewInterviewPage = () => {
           </p>
 
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-line bg-paper px-3 py-2.5">
-            <code className="min-w-0 flex-1 truncate text-sm text-ink-soft">{created.joinLink}</code>
+            <code className="min-w-0 flex-1 truncate text-sm text-ink-soft">{candidateJoinLink}</code>
             <button
               onClick={handleCopy}
               className="flex shrink-0 items-center gap-1.5 rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-teal-deep shadow-sm hover:bg-teal-soft"

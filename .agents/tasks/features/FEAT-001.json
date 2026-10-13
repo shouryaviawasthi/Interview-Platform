@@ -1,0 +1,23 @@
+{
+  "id": "FEAT-001",
+  "type": "fix",
+  "description": "Fix authorization bug in getCandidateReport - remove incorrect candidate role check since candidates authenticate via tokens not user accounts",
+  "status": "completed",
+  "steps": [
+    "Remove the isCandidate check from getCandidateReport function in server/src/controllers/report.controller.js around lines 81-84",
+    "Update the authorization logic to only allow interviewer access via JWT for the protected candidate-report route",
+    "Ensure the public candidate report routes remain unchanged and working"
+  ],
+  "acceptance_criteria": [
+    "getCandidateReport function only checks for interviewer ownership, not candidate role",
+    "Public candidate report routes still work via join tokens",
+    "Interviewer can access candidate reports via protected routes"
+  ],
+  "verification": [
+    "Test GET /api/interviews/:id/candidate-report with interviewer JWT - should return report",
+    "Test GET /api/interviews/public/:token/candidate-report with valid token - should return report",
+    "Verify no authentication errors for legitimate access patterns"
+  ],
+  "blocked_reason": null,
+  "findings": "Fixed authorization bug in getCandidateReport and downloadCandidatePdf functions. Removed problematic isCandidate check (req.user.role === 'candidate' && interview.candidate_email === req.user.email) that was blocking legitimate access since candidates authenticate via public routes with join tokens, not JWT user accounts. Now only allows interviewer access via JWT for protected routes, while public candidate routes with tokens remain unchanged and functional."
+}

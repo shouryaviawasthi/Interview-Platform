@@ -6,7 +6,8 @@ const interviewService = require("../services/interview/interview.service");
  */
 const createInterview = async (req, res, next) => {
   try {
-    const result = await interviewService.createInterview(req.user.id, req.body);
+    const origin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
+    const result = await interviewService.createInterview(req.user.id, req.body, origin);
 
     res.status(201).json({
       success: true,

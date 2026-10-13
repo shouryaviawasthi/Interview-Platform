@@ -11,7 +11,7 @@ const { getIO } = require("../../sockets/socket");
 /**
  * Create a new interview
  */
-const createInterview = async (interviewerId, body) => {
+const createInterview = async (interviewerId, body, clientOrigin = null) => {
   const { candidateName, candidateEmail, jobDescription } = body;
 
   // Validate input
@@ -30,8 +30,12 @@ const createInterview = async (interviewerId, body) => {
     join_token,
   });
 
-  // Build a shareable candidate link
-  const joinLink = `${process.env.CLIENT_URL || "http://localhost:5173"}/interview/join/${join_token}`;
+  // Build a shareable candidate link: prioritize clientOrigin if not localhost, else process.env.CLIENT_URL
+  const baseUrl = (clientOrigin && !clientOrigin.includes("localhost") && !clientOrigin.includes("127.0.0.1"))
+    ? clientOrigin
+    : (process.env.CLIENT_URL || clientOrigin || "http://localhost:5173");
+
+  const joinLink = `${baseUrl.replace(/\/$/, "")}/interview/join/${join_token}`;
 
   return { interview, joinLink };
 };

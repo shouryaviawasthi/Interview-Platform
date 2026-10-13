@@ -19,6 +19,7 @@ import InterviewAnalytics from "./pages/InterviewAnalytics";
 import InterviewEndDashboard from "./pages/InterviewEndDashboard";
 import CandidateReportSimple from "./pages/CandidateReportSimple";
 import InterviewerReportSimple from "./pages/InterviewerReportSimple";
+import CandidateDashboard from "./pages/CandidateDashboard";
 import JoinInterview from "./pages/JoinInterview";
 import InterviewRoom from "./pages/InterviewRoom";
 import NotFound from "./pages/NotFound";
@@ -53,6 +54,7 @@ const AppRoutes = () => (
     {/* Public candidate flow */}
     <Route path={ROUTES.JOIN} element={<JoinInterview />} />
     <Route path={ROUTES.ROOM} element={<InterviewRoom />} />
+    <Route path={ROUTES.CANDIDATE_DASHBOARD} element={<CandidateDashboard />} />
 
     {/* ── Standalone pages — no sidebar layout ── */}
     {/* End-of-interview summary (interviewer, post-session) */}

@@ -26,6 +26,8 @@ export const ROUTES = {
   join: (token) => `/interview/join/${token}`,
   ROOM: "/interview/room/:token",
   room: (token) => `/interview/room/${token}`,
+  CANDIDATE_DASHBOARD: "/candidate/dashboard/:token",
+  candidateDashboard: (token) => `/candidate/dashboard/${token}`,
   NOT_FOUND: "*",
 };
 

@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-003",
+  "type": "fix", 
+  "description": "Fix PDF generation data access issues in server/src/services/pdf/ by adding comprehensive error handling and data validation",
+  "status": "pending",
+  "steps": [
+    "Add null-safe data access in server/src/services/pdf/pdf.service.js getCandidateReportPdf and getInterviewerReportPdf functions",
+    "Add better error messages when report data is incomplete or malformed",
+    "Add validation for required report_json fields before PDF generation",
+    "Test PDF generation with various report states (processing, failed, incomplete data)"
+  ],
+  "acceptance_criteria": [
+    "PDF generation handles missing or null report data gracefully with clear error messages",
+    "PDF services validate report_json structure before attempting generation", 
+    "Error messages clearly indicate what data is missing for successful PDF generation",
+    "PDF generation works reliably when all required data is present"
+  ],
+  "verification": [
+    "Test PDF download when report is in 'processing' state - should show clear error",
+    "Test PDF download when report_json is malformed - should handle gracefully",
+    "Test PDF download with complete, valid report - should generate successfully",
+    "Verify error messages help users understand what needs to be ready"
+  ],
+  "blocked_reason": null,
+  "findings": "PDF services in server/src/services/pdf/pdf.service.js depend on report data being available and properly formed. Current error handling may not be comprehensive enough to handle edge cases like partial data or processing states."
+}

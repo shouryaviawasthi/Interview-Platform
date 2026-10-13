@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   FiCheckCircle, FiLoader, FiDownload, FiAward,
-  FiAlertTriangle, FiUser, FiZap, FiBarChart2, FiMessageSquare,
+  FiAlertTriangle, FiUser, FiZap, FiBarChart2, FiMessageSquare, FiBookmark,
 } from 'react-icons/fi';
 import { getPublicCandidateReport, downloadPublicCandidateReportPdf } from '../../services/interview.service';
+import { ROUTES } from '../../constants/routes';
 
 const formatDuration = (seconds) => {
   if (!seconds) return null;
@@ -216,6 +217,26 @@ const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
                   )}
                   {downloading ? 'Preparing PDF…' : 'Download My Report PDF'}
                 </button>
+              </div>
+
+              {/* Bookmark Message */}
+              <div className="border-t border-white/[0.06] pt-4">
+                <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 p-4">
+                  <div className="flex items-start gap-3">
+                    <FiBookmark className="h-5 w-5 text-blue-400 mt-0.5 shrink-0" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-white mb-1">Save This Report</h3>
+                      <p className="text-xs text-white/70 mb-3">
+                        Bookmark this page to access your interview report anytime. Your personalized dashboard link:
+                      </p>
+                      <div className="bg-ink-800/50 rounded-lg p-2 border border-white/10">
+                        <code className="text-xs text-blue-300 break-all">
+                          {window.location.origin}{ROUTES.candidateDashboard(token)}
+                        </code>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Disclaimer */}

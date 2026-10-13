@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-004",
+  "type": "fix",
+  "description": "Fix zero score issues in AI scoring pipeline by improving error handling, validation, and retry logic in Groq API integration and report generation",
+  "status": "pending", 
+  "steps": [
+    "Add better error handling in server/src/services/ai/groq.service.js for API failures and malformed responses",
+    "Improve validation in candidateAnalysis.service.js to catch zero scores and invalid report structures", 
+    "Add retry logic in server/src/services/report/report.service.js for failed AI analysis with exponential backoff",
+    "Add logging to track Groq API call success/failure rates and response validation issues",
+    "Update report generation to automatically retry when overallScore is 0 and transcript data exists"
+  ],
+  "acceptance_criteria": [
+    "Groq API failures are logged with detailed error information and retry automatically",
+    "Zero scores trigger automatic retry when transcript segments are available",
+    "Report validation catches malformed AI responses and marks them for retry",
+    "Scoring pipeline provides non-zero scores when transcript data is substantial"
+  ],
+  "verification": [
+    "Generate reports for interviews with substantial transcript data - scores should be non-zero",
+    "Check server logs for Groq API error handling during report generation",
+    "Verify automatic retry occurs when initial report generation produces zero scores", 
+    "Test report generation with mock API failures to confirm retry logic"
+  ],
+  "blocked_reason": null,
+  "findings": "In report.service.js, there's logic to detect zero scores and force regeneration, but the underlying Groq service and validation may not handle API errors or malformed responses robustly. This can result in silent failures producing zero scores instead of proper error states."
+}

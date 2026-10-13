@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-002", 
+  "type": "feat",
+  "description": "Add dedicated candidate post-interview dashboard route for candidates to return to their reports later via join token",
+  "status": "completed",
+  "steps": [
+    "Add new route constant CANDIDATE_DASHBOARD in client/src/constants/routes.js with pattern /candidate/dashboard/:token",
+    "Add the new route in client/src/App.jsx as a public route (no auth required)",
+    "Create new CandidateDashboard page component that uses the existing CandidateEndScreen component logic but with a different header/messaging",
+    "Update CandidateEndScreen to include a 'bookmark this page' message with the dashboard URL"
+  ],
+  "acceptance_criteria": [
+    "New route /candidate/dashboard/:token exists and loads without authentication",
+    "CandidateDashboard page shows the same report interface as CandidateEndScreen",
+    "Candidates can bookmark and return to their report later via the dashboard URL",
+    "CandidateEndScreen provides clear guidance about the bookmark URL"
+  ],
+  "verification": [
+    "Navigate to /candidate/dashboard/:token with a valid completed interview token",
+    "Verify report displays correctly without requiring login",
+    "Confirm PDF download works from the dashboard page",
+    "Check that bookmark URL is displayed to candidates after interview completion"
+  ],
+  "blocked_reason": null,
+  "findings": "Currently candidates see CandidateEndScreen immediately after interview but have no way to return later. The existing public API endpoints support token-based access, so adding a dedicated route will provide persistent access to reports."
+}

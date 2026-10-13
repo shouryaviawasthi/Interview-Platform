@@ -1,0 +1,7 @@
+{
+  "task_id": "task-interview-platform-bug-fixes",
+  "task_description": "Fix 4 critical bugs in the AI Interview Platform: authorization, missing routes, PDF generation, and zero scores",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}

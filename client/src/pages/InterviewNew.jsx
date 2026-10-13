@@ -43,9 +43,20 @@ const InterviewNew = () => {
     }
   };
 
+  const candidateJoinLink = (() => {
+    if (!result?.interview?.join_token) return "";
+    if (window.location.origin && !window.location.origin.includes("localhost") && !window.location.origin.includes("127.0.0.1")) {
+      return `${window.location.origin}/interview/join/${result.interview.join_token}`;
+    }
+    if (result.joinLink && !result.joinLink.includes("localhost") && !result.joinLink.includes("127.0.0.1")) {
+      return result.joinLink;
+    }
+    return `${window.location.origin}/interview/join/${result.interview.join_token}`;
+  })();
+
   const copyLink = async () => {
     try {
-      await navigator.clipboard.writeText(result.joinLink);
+      await navigator.clipboard.writeText(candidateJoinLink);
       toast.success("Join link copied");
     } catch {
       toast.error("Could not copy link");
@@ -115,7 +126,7 @@ const InterviewNew = () => {
             </div>
             <div className="flex items-center gap-2 rounded-xl border border-ink-100 bg-lav-50 px-3.5 py-2.5">
               <span className="flex-1 truncate text-left font-mono text-xs text-ink-600">
-                {result.joinLink}
+                {candidateJoinLink}
               </span>
               <button
                 onClick={copyLink}

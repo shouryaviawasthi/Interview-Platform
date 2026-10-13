@@ -1,0 +1,28 @@
+{
+  "project_type": "React + Express + PostgreSQL interview platform",
+  "language": "JavaScript (client: JSX, server: CommonJS)",
+  "build_system": "Client: Vite + npm, Server: Node.js + npm",
+  "test_framework": "No automated tests configured (server package.json shows placeholder test script)",
+  "build_command": "Client: npm run build, Server: npm start",
+  "test_command": "No test command available - manual verification required",
+  "verification_instructions": "Manual testing required: 1) Start server with npm run dev in server/, 2) Start client with npm run dev in client/, 3) Test API endpoints with browser/Postman, 4) Verify UI flows work correctly",
+  "snapshot_or_generated_files": "None identified",
+  "environment_constraints": "Requires PostgreSQL database, Deepgram API key, Groq API key. Client runs on :5173, server on :5000",
+  "contribution_requirements": "No specific contribution guidelines found - standard development practices apply",
+  "key_patterns": "Express controllers use try/catch with next(err), React components use hooks, Services use async/await, Models use PostgreSQL with pg library",
+  "relevant_files": [
+    "server/src/controllers/report.controller.js",
+    "server/src/routes/index.js", 
+    "server/src/routes/report.routes.js",
+    "server/src/middleware/auth.middleware.js",
+    "client/src/App.jsx",
+    "client/src/constants/routes.js",
+    "client/src/components/interview/CandidateEndScreen.jsx",
+    "client/src/services/interview.service.js",
+    "server/src/services/pdf/pdf.service.js",
+    "server/src/services/report/report.service.js",
+    "server/src/services/ai/groq.service.js",
+    "server/src/services/ai/candidateAnalysis.service.js"
+  ],
+  "directory_structure": "Root contains client/ and server/ subdirectories. Client uses src/pages, src/components, src/services structure. Server uses src/controllers, src/routes, src/services, src/models structure."
+}
