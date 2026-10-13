@@ -8,6 +8,50 @@ const interviewerAnalysis = require("../ai/interviewerAnalysis.service");
 const env = require("../../config/env");
 
 /**
+ * Retry function with exponential backoff for AI analysis calls
+ * @param {Function} fn - Function to retry
+ * @param {number} maxAttempts - Maximum number of retry attempts
+ * @param {string} operationName - Name of operation for logging
+ * @returns {Promise} - Result of successful function call
+ */
+const retryWithBackoff = async (fn, maxAttempts = 3, operationName = 'operation') => {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`[Reports] ${operationName} attempt ${attempt}/${maxAttempts}`);
+      const result = await fn();
+      
+      if (attempt > 1) {
+        console.log(`[Reports] ${operationName} succeeded on attempt ${attempt}`);
+      }
+      
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`[Reports] ${operationName} attempt ${attempt} failed:`, error.message);
+      
+      // Don't retry on validation errors that indicate structural issues
+      if (error.message.includes('Missing required field') || 
+          error.message.includes('not an object') ||
+          error.message.includes('No transcript segments available')) {
+        console.log(`[Reports] Not retrying ${operationName} due to structural error`);
+        throw error;
+      }
+      
+      if (attempt < maxAttempts) {
+        // Exponential backoff: 2^attempt seconds (2, 4, 8, ...)
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`[Reports] Waiting ${delay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw new Error(`${operationName} failed after ${maxAttempts} attempts. Last error: ${lastError.message}`);
+};
+
+/**
  * Compute interview duration in seconds from interview row.
  */
 const getDurationSeconds = (interview) => {
@@ -29,7 +73,7 @@ const getDurationSeconds = (interview) => {
  * @param {Object} options - { force: boolean }
  */
 const generateReports = async (interviewId, requestedBy = "both", options = {}) => {
-  console.log(`[Reports] Starting generation for interview ${interviewId}`);
+  console.log(`[Reports] Starting generation for interview ${interviewId}, requestedBy: ${requestedBy}`);
 
   try {
     // 1. Fetch all required data
@@ -46,10 +90,13 @@ const generateReports = async (interviewId, requestedBy = "both", options = {}) 
     const interviewDurationSecs = getDurationSeconds(interview);
     const model = env.GROQ_MODEL || "llama-3.1-70b-versatile";
 
+    console.log(`[Reports] Data loaded - segments: ${segments.length}, duration: ${interviewDurationSecs}s, model: ${model}`);
+
     // 2. Generate analytics in parallel / pre-step
     try {
       const analyticsService = require("../analytics/analytics.service");
       await analyticsService.generateInterviewAnalytics(interviewId);
+      console.log(`[Reports] Analytics generation completed for ${interviewId}`);
     } catch (analyticsErr) {
       console.error(`[Reports] Analytics generation error for ${interviewId}:`, analyticsErr.message);
     }
@@ -109,6 +156,8 @@ const generateCandidateReport = async ({
     return;
   }
 
+  console.log(`[Reports] Starting candidate report generation for ${interviewId}. Existing score: ${existing?.overall_score}, Force: ${options.force}, Zero score retry: ${isZeroScore}`);
+
   // Mark processing
   await reportModel.upsertCandidateReport({
     interview_id: interviewId,
@@ -117,13 +166,26 @@ const generateCandidateReport = async ({
   });
 
   try {
-    const { report, overallScore, recommendation } = await candidateAnalysis.analyzeCandidatePerformance({
-      segments,
-      jobDescription: interview.job_description,
-      resumeText: resume?.resume_text || null,
-      interviewDurationSecs,
-      interviewMeta: { candidateName: interview.candidate_name, interviewId },
-    });
+    const analysisResult = await retryWithBackoff(
+      async () => {
+        return await candidateAnalysis.analyzeCandidatePerformance({
+          segments,
+          jobDescription: interview.job_description,
+          resumeText: resume?.resume_text || null,
+          interviewDurationSecs,
+          interviewMeta: { candidateName: interview.candidate_name, interviewId },
+        });
+      },
+      3, // maxAttempts
+      `Candidate analysis for interview ${interviewId}`
+    );
+
+    const { report, overallScore, recommendation } = analysisResult;
+
+    // Additional validation after successful analysis
+    if (overallScore === 0 && segments.length > 5) {
+      console.warn(`[Reports] AI produced zero score despite ${segments.length} transcript segments for interview ${interviewId}`);
+    }
 
     await reportModel.upsertCandidateReport({
       interview_id: interviewId,
@@ -135,9 +197,15 @@ const generateCandidateReport = async ({
       error_message: null,
     });
 
-    console.log(`[Reports] Candidate report completed. Score: ${overallScore}, Rec: ${recommendation}`);
+    console.log(`[Reports] Candidate report completed successfully. Score: ${overallScore}, Recommendation: ${recommendation}`);
   } catch (err) {
-    console.error(`[Reports] Candidate report failed:`, err.message);
+    console.error(`[Reports] Candidate report failed after retries for interview ${interviewId}:`, {
+      error: err.message,
+      segmentCount: segments.length,
+      hasResume: !!resume?.resume_text,
+      duration: interviewDurationSecs
+    });
+    
     await reportModel.upsertCandidateReport({
       interview_id: interviewId,
       status: "failed",
@@ -170,6 +238,8 @@ const generateInterviewerReport = async ({
     return;
   }
 
+  console.log(`[Reports] Starting interviewer report generation for ${interviewId}. Existing score: ${existing?.overall_score}, Force: ${options.force}, Zero score retry: ${isZeroScore}`);
+
   // Mark processing
   await reportModel.upsertInterviewerReport({
     interview_id: interviewId,
@@ -178,15 +248,28 @@ const generateInterviewerReport = async ({
   });
 
   try {
-    const { report, overallScore } = await interviewerAnalysis.analyzeInterviewerPerformance({
-      segments,
-      jobDescription: interview.job_description,
-      interviewDurationSecs,
-      interviewMeta: {
-        interviewerName: interviewer?.name || "Interviewer",
-        interviewId,
+    const analysisResult = await retryWithBackoff(
+      async () => {
+        return await interviewerAnalysis.analyzeInterviewerPerformance({
+          segments,
+          jobDescription: interview.job_description,
+          interviewDurationSecs,
+          interviewMeta: {
+            interviewerName: interviewer?.name || "Interviewer",
+            interviewId,
+          },
+        });
       },
-    });
+      3, // maxAttempts  
+      `Interviewer analysis for interview ${interviewId}`
+    );
+
+    const { report, overallScore } = analysisResult;
+
+    // Additional validation after successful analysis
+    if (overallScore === 0 && segments.length > 5) {
+      console.warn(`[Reports] AI produced zero interviewer score despite ${segments.length} transcript segments for interview ${interviewId}`);
+    }
 
     await reportModel.upsertInterviewerReport({
       interview_id: interviewId,
@@ -197,9 +280,15 @@ const generateInterviewerReport = async ({
       error_message: null,
     });
 
-    console.log(`[Reports] Interviewer report completed. Score: ${overallScore}`);
+    console.log(`[Reports] Interviewer report completed successfully. Score: ${overallScore}`);
   } catch (err) {
-    console.error(`[Reports] Interviewer report failed:`, err.message);
+    console.error(`[Reports] Interviewer report failed after retries for interview ${interviewId}:`, {
+      error: err.message,
+      segmentCount: segments.length,
+      interviewerName: interviewer?.name,
+      duration: interviewDurationSecs
+    });
+    
     await reportModel.upsertInterviewerReport({
       interview_id: interviewId,
       status: "failed",
