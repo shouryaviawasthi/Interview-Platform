@@ -1,5 +1,4 @@
-import { useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import CandidateEndScreen from '../components/interview/CandidateEndScreen';
 
 /**
@@ -11,7 +10,8 @@ import CandidateEndScreen from '../components/interview/CandidateEndScreen';
  */
 const CandidateDashboard = () => {
   const { token } = useParams();
-  
+  const { state } = useLocation();
+
   if (!token) {
     return (
       <div className="min-h-screen bg-ink-900 flex items-center justify-center px-4">
@@ -27,7 +27,7 @@ const CandidateDashboard = () => {
     <CandidateEndScreen 
       token={token}
       candidateName={null} // Will be loaded from the report data
-      durationSeconds={null} // Will be loaded from the report data
+      durationSeconds={state?.durationSeconds ?? null}
     />
   );
 };

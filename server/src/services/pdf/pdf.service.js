@@ -79,6 +79,7 @@ const getCandidateReportPdf = async (interviewId) => {
     // Safely retrieve supporting data with null checks
     const analytics = await analyticsModel.getAnalyticsByInterviewId(interviewId);
     const segments = await transcriptModel.getSegmentsByInterviewId(interviewId);
+    validateAssignedSpeakers(segments);
 
     // Ensure we have the report_json in the correct format for PDF generation
     const reportWithParsedJson = {
@@ -136,6 +137,19 @@ const validateInterviewerReportJson = (reportJson) => {
 /**
  * Generate Interviewer Report PDF buffer and filename.
  */
+const validateAssignedSpeakers = (segments) => {
+  const assignedRoles = new Set(
+    segments
+      .map((segment) => segment.speaker || segment.speaker_type)
+      .filter((speaker) => speaker === "interviewer" || speaker === "candidate")
+  );
+  if (!assignedRoles.has("interviewer") || !assignedRoles.has("candidate")) {
+    throw new Error(
+      "Assign transcript speaker roles to both the interviewer and candidate before downloading this report."
+    );
+  }
+};
+
 const getInterviewerReportPdf = async (interviewId) => {
   try {
     const interview = await interviewModel.getInterviewById(interviewId);
@@ -186,6 +200,7 @@ const getInterviewerReportPdf = async (interviewId) => {
     // Safely retrieve supporting data with null checks
     const analytics = await analyticsModel.getAnalyticsByInterviewId(interviewId);
     const segments = await transcriptModel.getSegmentsByInterviewId(interviewId);
+    validateAssignedSpeakers(segments);
 
     // Ensure we have the report_json in the correct format for PDF generation
     const reportWithParsedJson = {

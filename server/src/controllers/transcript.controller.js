@@ -35,7 +35,8 @@ const uploadAudio = async (req, res, next) => {
 
     // Check if audio was already uploaded — prevent duplicate uploads
     const existing = await audioModel.getAudioByInterviewId(interviewId);
-    if (existing && existing.status === "completed") {
+    const isLiveTranscriptPlaceholder = existing?.file_path === "live_stream_chunks";
+    if (existing && existing.status === "completed" && !isLiveTranscriptPlaceholder) {
       return res.status(409).json({
         success: false,
         message: "Transcription already completed for this interview.",
@@ -49,17 +50,34 @@ const uploadAudio = async (req, res, next) => {
     }
 
     // Store audio metadata
-    const audioRecord = await audioModel.createAudioRecord({
-      interview_id: interviewId,
-      file_path: req.file.path,
-      file_name: req.file.filename,
-      mime_type: req.file.mimetype,
-      file_size: req.file.size,
-    });
+    const audioRecord = isLiveTranscriptPlaceholder
+      ? await audioModel.replaceLiveAudioRecord({
+          interview_id: interviewId,
+          file_path: req.file.path,
+          file_name: req.file.filename,
+          mime_type: req.file.mimetype,
+          file_size: req.file.size,
+        })
+      : await audioModel.createAudioRecord({
+          interview_id: interviewId,
+          file_path: req.file.path,
+          file_name: req.file.filename,
+          mime_type: req.file.mimetype,
+          file_size: req.file.size,
+        });
+    if (!audioRecord) {
+      throw new Error("Could not store the uploaded interview audio.");
+    }
 
-    // Fire-and-forget: transcription runs in background
-    // Interview completion is NOT blocked by this
-    transcriptionService.processAudio(interviewId);
+    // Let active participant streams finish first; stopSession starts fallback
+    // transcription if role-attributed live segments are not available.
+    const liveTranscript = require("../services/transcription/liveTranscription.service");
+    if (!liveTranscript.isSessionActive(interviewId)) {
+      transcriptionService.processAudio(interviewId);
+    }
+    const message = liveTranscript.isSessionActive(interviewId)
+      ? "Audio uploaded. Live role-labeled transcription is being finalized."
+      : "Audio uploaded. Transcription started in background.";
 
     res.status(201).json({
       success: true,
@@ -68,7 +86,7 @@ const uploadAudio = async (req, res, next) => {
         status: audioRecord.status,
         fileName: audioRecord.file_name,
       },
-      message: "Audio uploaded. Transcription started in background.",
+      message,
     });
   } catch (error) {
     next(error);
@@ -170,10 +188,12 @@ const assignSpeakers = async (req, res, next) => {
     }
 
     await transcriptionService.applySpeakerMap(interviewId, speakerMap);
+    const { generateReports } = require("../services/report/report.service");
+    generateReports(interviewId, "both", { force: true });
 
     res.status(200).json({
       success: true,
-      message: "Speaker assignment saved.",
+      message: "Speaker assignment saved. Report generation has started.",
     });
   } catch (error) {
     next(error);

@@ -11,6 +11,7 @@ An end-to-end interview platform for scheduling and running live technical or be
 - WebRTC peer-to-peer media with Socket.IO signaling.
 - Live transcript streaming through Deepgram and persisted transcript data.
 - Uploaded interview audio processing and background transcription after server restart.
+- Transcript processing disables Deepgram punctuation, smart formatting, and numeral conversion. Live microphone streams are transcribed separately and labeled from each joined participant's role; diarized speakers from uploaded-only recordings can be assigned on the Transcript page.
 - Resume upload and resume text extraction.
 - Candidate and interviewer AI reports powered by Groq.
 - Deterministic interview analytics such as speaking time, turns, pauses, filler words, and question counts.
@@ -48,9 +49,9 @@ The root folder does not contain a `package.json`. Install dependencies and run 
 3. The candidate opens the join URL. The server validates the token and returns the interview context.
 4. Both participants enter the interview room and join a Socket.IO room identified by the interview ID.
 5. The interviewer and candidate exchange WebRTC offer, answer, and ICE-candidate messages through Socket.IO. Media flows directly between browsers.
-6. Microphone audio can be sent as live chunks to the server. Deepgram returns transcript segments, which are broadcast to the room and stored in PostgreSQL.
-7. When the interview ends, uploaded audio and transcript data can be processed. The server calculates conversation analytics and sends transcript/context to Groq for candidate and interviewer evaluations.
-8. Reports are saved with processing status and model metadata. The interviewer can view reports, analytics, transcripts, and download generated PDFs.
+6. Each participant's microphone is sent to a separate Deepgram live stream. The server labels the resulting raw transcript with that participant's joined role, broadcasts it to the room, and stores it in PostgreSQL. This avoids guessing roles from Deepgram's speaker numbers.
+7. When the interview ends, the server starts candidate and interviewer evaluations independently alongside analytics generation.
+8. The candidate receives a separate candidate analysis and PDF on the candidate dashboard. The interviewer receives a separate interviewer performance analysis and PDF on the interviewer dashboard.
 
 ## Client Modules
 
@@ -217,14 +218,20 @@ JWT_EXPIRES_IN=1d
 
 DEEPGRAM_API_KEY=your_deepgram_api_key
 GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=openai/gpt-oss-120b
 ```
 
 Never commit `server/.env`. Environment files are ignored by `.gitignore`.
 
 ### 3. Initialize the database
 
-Run `database/schema.sql` against the configured PostgreSQL database. Apply the phase migrations in order when using the corresponding features:
+From the `server` directory, initialize the base tables and apply the phase migrations to the configured PostgreSQL database:
+
+```bash
+npm run db:setup
+```
+
+Apply the phase migrations in order when using the corresponding features:
 
 ```text
 database/schema.sql
@@ -233,7 +240,7 @@ database/migration_phase4.sql
 database/migration_phase5.sql
 ```
 
-The server startup also verifies the Phase 4 and Phase 5 tables, but running the migrations explicitly keeps database setup reproducible.
+The setup command is safe to run again: the base schema and phase migrations use idempotent create/add operations. The server also verifies the Phase 4 and Phase 5 tables at startup.
 
 ### 4. Start the applications
 

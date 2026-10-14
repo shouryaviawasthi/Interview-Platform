@@ -35,6 +35,12 @@ ALTER TABLE transcripts
     ADD COLUMN IF NOT EXISTS confidence    NUMERIC(5,4),
     ADD COLUMN IF NOT EXISTS language      VARCHAR(20);
 
+-- Keep legacy speaker labels such as Deepgram's "speaker_0" alongside
+-- the normalized speaker_type used by reports and the speaker assignment UI.
+ALTER TABLE transcripts
+    ALTER COLUMN speaker TYPE VARCHAR(100),
+    DROP CONSTRAINT IF EXISTS transcripts_speaker_check;
+
 -- Speaker assignment tracking (maps Deepgram speaker_0/speaker_1 to roles)
 -- Stored as JSONB on interview_audio so we don't need a separate table
 -- { "speaker_0": "interviewer", "speaker_1": "candidate" } or null if unassigned

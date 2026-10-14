@@ -10,8 +10,8 @@ const env = require("../../config/env");
  *  - model: nova-3
  *  - language: multi    (English, Hindi, Hinglish, Indian English, code-switching)
  *  - utterances: true   (utterance-level segments)
- *  - punctuate: true
  *  - paragraphs: false  (we handle segmentation ourselves via utterances)
+ *  - raw transcript text: no punctuation, smart formatting, or numeral conversion
  *
  * Returns an array of normalized segments:
  *  [{
@@ -38,8 +38,10 @@ const transcribeAudioFile = async (filePath, mimeType = "audio/webm") => {
       language: "multi",
       diarize: true,
       utterances: true,
-      punctuate: true,
-      smart_format: true,
+      filler_words: true,
+      numerals: false,
+      punctuate: false,
+      smart_format: false,
     }
   );
 
@@ -54,7 +56,7 @@ const transcribeAudioFile = async (filePath, mimeType = "audio/webm") => {
 
   if (utterances && utterances.length > 0) {
     return utterances.map((u) => ({
-      rawSpeaker: `speaker_${u.speaker}`,
+      rawSpeaker: `speaker_${u.speaker ?? 0}`,
       text: u.transcript,
       startTime: u.start,
       endTime: u.end,
@@ -87,10 +89,10 @@ const transcribeAudioFile = async (filePath, mimeType = "audio/webm") => {
         language: null,
       });
       currentSpeaker = spk;
-      currentWords = [word.punctuated_word ?? word.word];
+      currentWords = [word.word];
       segStart = word.start;
     } else {
-      currentWords.push(word.punctuated_word ?? word.word);
+      currentWords.push(word.word);
     }
   }
 

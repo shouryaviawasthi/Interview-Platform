@@ -1,17 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  FiCheckCircle, FiLoader, FiDownload, FiUser, FiBarChart2,
-  FiMessageSquare, FiZap, FiBriefcase, FiAward, FiFileText,
+  FiCheckCircle, FiLoader, FiDownload, FiBarChart2,
+  FiMessageSquare, FiZap, FiAward, FiFileText,
   FiAlertTriangle, FiArrowRight, FiClock, FiUsers, FiHome,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import {
-  getCandidateReport,
   getInterviewerReport,
   getInterviewById,
-  downloadCandidateReportPdf,
   downloadInterviewerReportPdf,
+  retryReports,
 } from '../services/interview.service';
 import { ROUTES } from '../constants/routes';
 
@@ -91,30 +90,31 @@ const StatusBadge = ({ status }) => {
 /**
  * InterviewEndDashboard
  *
- * Standalone page (no sidebar/layout) shown to the interviewer after ending an interview.
- * Polls both AI reports, shows score preview, and allows PDF download + links to full simple reports.
+ * Standalone interviewer dashboard shown after ending an interview.
+ * Shows the interviewer's analysis and provides a downloadable PDF.
  */
 const InterviewEndDashboard = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
   const [interview, setInterview] = useState(null);
-  const [candidateReport, setCandidateReport] = useState(null);
   const [interviewerReport, setInterviewerReport] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dlCandidate, setDlCandidate] = useState(false);
-  const [dlInterviewer, setDlInterviewer] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [reportLoadError, setReportLoadError] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+  const [pdfDownloaded, setPdfDownloaded] = useState(false);
 
-  const loadReports = useCallback(async () => {
+  const loadReport = useCallback(async () => {
     try {
-      const [cr, ir] = await Promise.all([
-        getCandidateReport(id).catch(() => null),
-        getInterviewerReport(id).catch(() => null),
-      ]);
-      setCandidateReport(cr);
-      setInterviewerReport(ir);
-      return { cr, ir };
-    } catch { return { cr: null, ir: null }; }
+      const report = await getInterviewerReport(id);
+      setInterviewerReport(report);
+      setReportLoadError(null);
+      return report;
+    } catch (error) {
+      setReportLoadError(error.response?.data?.message || error.message || 'Could not load your interviewer report.');
+      return null;
+    }
   }, [id]);
 
   useEffect(() => {
@@ -126,44 +126,52 @@ const InterviewEndDashboard = () => {
         navigate(ROUTES.INTERVIEWS);
         return;
       }
-      await loadReports();
+      await loadReport();
       setLoading(false);
     };
     init();
-  }, [id, navigate, loadReports]);
+  }, [id, navigate, loadReport]);
 
-  // Poll while either report is processing
+  // Poll until the interviewer's analysis is complete.
   useEffect(() => {
-    const crStatus = candidateReport?.status;
     const irStatus = interviewerReport?.status;
-    const stillPending = crStatus === 'processing' || crStatus === 'not_started' ||
-                         irStatus === 'processing' || irStatus === 'not_started';
+    const waitingForSpeakerAssignment = irStatus === 'not_started' && interviewerReport?.errorMessage;
+    const stillPending = irStatus === 'processing' || (irStatus === 'not_started' && !waitingForSpeakerAssignment);
+    if (reportLoadError) return;
     if (!stillPending) return;
     const iv = setInterval(async () => {
-      const { cr, ir } = await loadReports();
-      const done = (cr?.status === 'completed' || cr?.status === 'failed') &&
-                   (ir?.status === 'completed' || ir?.status === 'failed');
-      if (done) clearInterval(iv);
+      const report = await loadReport();
+      if (report?.status === 'completed' || report?.status === 'failed') clearInterval(iv);
     }, 5000);
     return () => clearInterval(iv);
-  }, [candidateReport?.status, interviewerReport?.status, loadReports]);
+  }, [interviewerReport?.status, interviewerReport?.errorMessage, loadReport, reportLoadError]);
 
-  const handleDlCandidate = async () => {
-    setDlCandidate(true);
-    try {
-      await downloadCandidateReportPdf(id, interview?.candidate_name || 'Candidate');
-      toast.success('Candidate PDF downloaded!');
-    } catch { toast.error('PDF not ready yet.'); }
-    finally { setDlCandidate(false); }
-  };
-
-  const handleDlInterviewer = async () => {
-    setDlInterviewer(true);
+  const handleDownload = async () => {
+    setDownloading(true);
+    setPdfDownloaded(false);
     try {
       await downloadInterviewerReportPdf(id, 'Interviewer');
-      toast.success('Interviewer PDF downloaded!');
-    } catch { toast.error('PDF not ready yet.'); }
-    finally { setDlInterviewer(false); }
+      setPdfDownloaded(true);
+      toast.success('Your interviewer report PDF was downloaded.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not download the interviewer report PDF.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    setReportLoadError(null);
+    try {
+      await retryReports(id);
+      toast.success('Report retry started. This page will update automatically.');
+      await loadReport();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not retry the report.');
+    } finally {
+      setRetrying(false);
+    }
   };
 
   if (loading) {
@@ -174,7 +182,6 @@ const InterviewEndDashboard = () => {
     );
   }
 
-  const crpt = candidateReport?.reportJson ?? null;
   const irpt = interviewerReport?.reportJson ?? null;
 
   const durationSec = interview?.duration_seconds
@@ -199,12 +206,10 @@ const InterviewEndDashboard = () => {
         </div>
 
         {/* ── Quick stats row ─────────────────────────────────────────────── */}
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-4">
           {[
             { label: 'Duration', value: durationSec ? formatDuration(durationSec) : '—', icon: FiClock },
-            { label: 'Candidate Score', value: candidateReport?.overallScore ? (Math.round(candidateReport.overallScore) + '/100') : '—', icon: FiAward },
-            { label: 'Interviewer Score', value: interviewerReport?.overallScore ? (Math.round(interviewerReport.overallScore) + '/100') : '—', icon: FiUsers },
-            { label: 'Recommendation', value: crpt?.recommendation?.split(' ')[0] || '—', icon: FiBriefcase },
+            { label: 'Your Interviewer Score', value: interviewerReport?.overallScore != null ? `${Math.round(interviewerReport.overallScore)}/100` : '—', icon: FiAward },
           ].map(({ label, value, icon: Icon }) => (
             <div key={label} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 text-center">
               <Icon className="mx-auto mb-1.5 h-4 w-4 text-white/30" />
@@ -214,62 +219,7 @@ const InterviewEndDashboard = () => {
           ))}
         </div>
 
-        {/* ── Candidate Report Card ────────────────────────────────────────── */}
-        <div className="mb-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FiUser className="h-4 w-4 text-emerald-400" />
-              <h2 className="font-display text-sm font-semibold text-white">Candidate Report</h2>
-            </div>
-            <StatusBadge status={candidateReport?.status ?? 'not_started'} />
-          </div>
-
-          {(candidateReport?.status === 'not_started' || candidateReport?.status === 'processing') && (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <FiLoader className="h-7 w-7 animate-spin text-emerald-400/60" />
-              <p className="text-xs text-white/40">AI is analyzing candidate performance…</p>
-            </div>
-          )}
-
-          {candidateReport?.status === 'completed' && crpt && (
-            <div className="space-y-4">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                <div className="shrink-0 text-center">
-                  <ScoreRing score={crpt.overallScore} />
-                  <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-white/35">Overall</p>
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs leading-relaxed text-white/60">{crpt.summary}</p>
-                </div>
-              </div>
-              <div className="space-y-2.5 border-t border-white/[0.06] pt-4">
-                <ScoreBar label="Technical Skills" score={crpt.technicalEvaluation?.score} icon={FiZap} />
-                <ScoreBar label="Problem Solving" score={crpt.problemSolving?.score} icon={FiBarChart2} />
-                <ScoreBar label="Communication" score={crpt.communication?.score} icon={FiMessageSquare} />
-                <ScoreBar label="Job Fit" score={crpt.jobFit?.score} icon={FiBriefcase} />
-              </div>
-            </div>
-          )}
-
-          <div className="mt-5 flex flex-wrap gap-2.5 border-t border-white/[0.06] pt-4">
-            <button
-              onClick={handleDlCandidate}
-              disabled={dlCandidate || candidateReport?.status !== 'completed'}
-              className="flex items-center gap-2 rounded-xl bg-emerald-600/20 px-4 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/30 transition-colors disabled:opacity-40"
-            >
-              {dlCandidate ? <FiLoader className="h-3.5 w-3.5 animate-spin" /> : <FiDownload className="h-3.5 w-3.5" />}
-              Download Candidate PDF
-            </button>
-            <Link
-              to={ROUTES.candidateReportSimple(id)}
-              className="flex items-center gap-2 rounded-xl bg-white/[0.05] px-4 py-2 text-xs font-semibold text-white/60 hover:bg-white/[0.1] transition-colors"
-            >
-              <FiFileText className="h-3.5 w-3.5" /> View Candidate Report
-            </Link>
-          </div>
-        </div>
-
-        {/* ── Interviewer Report Card ──────────────────────────────────────── */}
+        {/* ── Interviewer Report ───────────────────────────────────────────── */}
         <div className="mb-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -279,10 +229,55 @@ const InterviewEndDashboard = () => {
             <StatusBadge status={interviewerReport?.status ?? 'not_started'} />
           </div>
 
-          {(interviewerReport?.status === 'not_started' || interviewerReport?.status === 'processing') && (
+          {interviewerReport?.status === 'not_started' && interviewerReport?.errorMessage && (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <FiAlertTriangle className="h-8 w-8 text-amber-300" />
+              <p className="text-sm text-white/70">{interviewerReport.errorMessage}</p>
+              <Link
+                to={ROUTES.transcript(id)}
+                className="rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/15"
+              >
+                Review transcript and assign speakers
+              </Link>
+            </div>
+          )}
+
+          {(interviewerReport?.status === 'processing'
+            || (interviewerReport?.status === 'not_started' && !interviewerReport?.errorMessage)) && (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <FiLoader className="h-7 w-7 animate-spin text-sky-400/60" />
               <p className="text-xs text-white/40">AI is evaluating your interviewing technique…</p>
+            </div>
+          )}
+
+          {reportLoadError && (
+            <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-200">
+              {reportLoadError}
+              <button
+                type="button"
+                onClick={loadReport}
+                className="ml-3 rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/80 hover:bg-white/15"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
+          {interviewerReport?.status === 'failed' && (
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-200">
+              <p className="font-semibold">The interviewer analysis could not be generated.</p>
+              <p className="mt-1 text-red-100/75">
+                {interviewerReport.errorMessage || 'Check that the transcript is ready, then retry the analysis.'}
+              </p>
+              <button
+                type="button"
+                onClick={handleRetry}
+                disabled={retrying}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-500/20 px-3 py-2 font-semibold text-red-100 hover:bg-red-500/30 disabled:opacity-50"
+              >
+                {retrying && <FiLoader className="h-3.5 w-3.5 animate-spin" />}
+                {retrying ? 'Retrying analysis…' : 'Retry report generation'}
+              </button>
             </div>
           )}
 
@@ -299,20 +294,36 @@ const InterviewEndDashboard = () => {
               </div>
               <div className="space-y-2.5 border-t border-white/[0.06] pt-4">
                 <ScoreBar label="Question Quality" score={irpt.questionQuality?.score} icon={FiMessageSquare} />
+                <ScoreBar label="Follow-up Quality" score={irpt.followUpQuality?.score} icon={FiZap} />
                 <ScoreBar label="Interview Structure" score={irpt.interviewStructure?.score} icon={FiBarChart2} />
                 <ScoreBar label="Candidate Engagement" score={irpt.candidateEngagement?.score} icon={FiUsers} />
+                <ScoreBar label="Communication" score={irpt.communication?.score} icon={FiMessageSquare} />
               </div>
+              {irpt.areasForImprovement?.length > 0 && (
+                <div className="border-t border-white/[0.06] pt-4">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-sky-300/70">
+                    Areas to Improve
+                  </p>
+                  <ul className="space-y-1.5">
+                    {irpt.areasForImprovement.slice(0, 3).map((area, index) => (
+                      <li key={`${area}-${index}`} className="text-xs text-white/60">
+                        {area}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
           <div className="mt-5 flex flex-wrap gap-2.5 border-t border-white/[0.06] pt-4">
             <button
-              onClick={handleDlInterviewer}
-              disabled={dlInterviewer || interviewerReport?.status !== 'completed'}
+              onClick={handleDownload}
+              disabled={downloading || interviewerReport?.status !== 'completed'}
               className="flex items-center gap-2 rounded-xl bg-sky-600/20 px-4 py-2 text-xs font-semibold text-sky-300 hover:bg-sky-600/30 transition-colors disabled:opacity-40"
             >
-              {dlInterviewer ? <FiLoader className="h-3.5 w-3.5 animate-spin" /> : <FiDownload className="h-3.5 w-3.5" />}
-              Download My Report PDF
+              {downloading ? <FiLoader className="h-3.5 w-3.5 animate-spin" /> : pdfDownloaded ? <FiCheckCircle className="h-3.5 w-3.5" /> : <FiDownload className="h-3.5 w-3.5" />}
+              {downloading ? 'Preparing PDF…' : pdfDownloaded ? 'PDF Downloaded — Download Again' : 'Download My Report PDF'}
             </button>
             <Link
               to={ROUTES.interviewerReportSimple(id)}

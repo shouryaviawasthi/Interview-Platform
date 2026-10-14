@@ -80,21 +80,15 @@ const SpeakerAssignModal = ({ speakerMap, onSave, onClose, isSaving }) => {
 
   const handleAssign = (rawSpeaker, role) => {
     setAssignments((prev) => {
-      const next = { ...prev };
-      // Clear other speakers assigned to this role (each role can only have one)
-      for (const k of Object.keys(next)) {
-        if (next[k] === role && k !== rawSpeaker) {
-          next[k] = "";
-        }
-      }
-      next[rawSpeaker] = role;
-      return next;
+      return { ...prev, [rawSpeaker]: role };
     });
   };
 
-  const isValid = rawSpeakers.every((spk) =>
-    ["interviewer", "candidate"].includes(assignments[spk])
-  );
+  const assignedRoles = new Set(Object.values(assignments));
+  const isValid = rawSpeakers.length >= 2
+    && rawSpeakers.every((spk) => ["interviewer", "candidate"].includes(assignments[spk]))
+    && assignedRoles.has("interviewer")
+    && assignedRoles.has("candidate");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -104,6 +98,11 @@ const SpeakerAssignModal = ({ speakerMap, onSave, onClose, isSaving }) => {
         <p className="mb-5 text-sm text-white/50">
           Deepgram detected {rawSpeakers.length} speaker(s). Assign each to the correct participant.
         </p>
+        {rawSpeakers.length < 2 && (
+          <p className="mb-5 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-200/80">
+            Both participants must be detected to generate separate reports. Upload or retry the full recording if one speaker is missing.
+          </p>
+        )}
 
         <div className="space-y-4">
           {rawSpeakers.map((rawSpk) => (
@@ -158,12 +157,15 @@ const SpeakerAssignModal = ({ speakerMap, onSave, onClose, isSaving }) => {
 const SegmentCard = ({ segment }) => {
   const type = segment.speaker || "unknown";
   const style = SPEAKER_COLORS[type] || SPEAKER_COLORS.unknown;
+  const speakerLabel = type === "unknown" && segment.raw_speaker
+    ? segment.raw_speaker.replace("_", " ").toUpperCase()
+    : style.label;
 
   return (
     <div className={`rounded-2xl border p-4 ${style.bg} ${style.border}`}>
       <div className="mb-2 flex items-center gap-3">
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-widest ${style.badge}`}>
-          {style.label}
+          {speakerLabel}
         </span>
         {segment.startTime != null && (
           <span className="font-mono text-[11px] text-white/30">
@@ -348,7 +350,7 @@ const Transcript = () => {
           {status === "completed" && hasUnassigned && (
             <div className="mt-3 flex items-center gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
               <FiAlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Speaker labels are unassigned. Click "Assign Speakers" to identify who is the interviewer and who is the candidate.
+              Speaker labels are unassigned. Assign the interviewer and candidate to generate accurate reports.
             </div>
           )}
         </div>

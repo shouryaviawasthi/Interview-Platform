@@ -63,6 +63,18 @@ const getDurationSeconds = (interview) => {
   return null;
 };
 
+const hasBothAssignedSpeakers = (segments) => {
+  const speakers = new Set(
+    segments
+      .map((segment) => segment.speaker || segment.speaker_type)
+      .filter((speaker) => speaker === "interviewer" || speaker === "candidate")
+  );
+  return speakers.has("interviewer") && speakers.has("candidate");
+};
+
+const SPEAKER_ASSIGNMENT_MESSAGE =
+  "Assign the detected transcript speakers to the interviewer and candidate on the Transcript page before generating reports.";
+
 /**
  * Main report generation function.
  * Called fire-and-forget from the controller or transcription service.
@@ -88,22 +100,51 @@ const generateReports = async (interviewId, requestedBy = "both", options = {}) 
     const interviewer = await findUserById(interview.interviewer_id);
 
     const interviewDurationSecs = getDurationSeconds(interview);
-    const model = env.GROQ_MODEL || "llama-3.1-70b-versatile";
+    const model = env.GROQ_MODEL || "openai/gpt-oss-120b";
 
     console.log(`[Reports] Data loaded - segments: ${segments.length}, duration: ${interviewDurationSecs}s, model: ${model}`);
 
-    // 2. Generate analytics in parallel / pre-step
-    try {
-      const analyticsService = require("../analytics/analytics.service");
-      await analyticsService.generateInterviewAnalytics(interviewId);
-      console.log(`[Reports] Analytics generation completed for ${interviewId}`);
-    } catch (analyticsErr) {
-      console.error(`[Reports] Analytics generation error for ${interviewId}:`, analyticsErr.message);
+    if (segments.length > 0 && !hasBothAssignedSpeakers(segments)) {
+      console.log(`[Reports] Deferring analysis for ${interviewId} until transcript speakers are assigned.`);
+      if (requestedBy === "both" || requestedBy === "candidate") {
+        await reportModel.upsertCandidateReport({
+          interview_id: interviewId,
+          status: "not_started",
+          report_json: null,
+          overall_score: null,
+          recommendation: null,
+          llm_model: model,
+          error_message: SPEAKER_ASSIGNMENT_MESSAGE,
+        });
+      }
+      if (requestedBy === "both" || requestedBy === "interviewer") {
+        await reportModel.upsertInterviewerReport({
+          interview_id: interviewId,
+          status: "not_started",
+          report_json: null,
+          overall_score: null,
+          llm_model: model,
+          error_message: SPEAKER_ASSIGNMENT_MESSAGE,
+        });
+      }
+      return;
     }
 
-    // 3. Generate candidate report
+    const analyticsJob = (async () => {
+      try {
+        const analyticsService = require("../analytics/analytics.service");
+        await analyticsService.generateInterviewAnalytics(interviewId, { force: options.force });
+        console.log(`[Reports] Analytics generation completed for ${interviewId}`);
+      } catch (analyticsErr) {
+        console.error(`[Reports] Analytics generation error for ${interviewId}:`, analyticsErr.message);
+      }
+    })();
+
+    // Start both independent evaluations without waiting for analytics or each other.
+    const reportJobs = [];
+
     if (requestedBy === "both" || requestedBy === "candidate") {
-      await generateCandidateReport({
+      reportJobs.push(generateCandidateReport({
         interviewId,
         interview,
         segments,
@@ -111,12 +152,11 @@ const generateReports = async (interviewId, requestedBy = "both", options = {}) 
         interviewDurationSecs,
         model,
         options,
-      });
+      }));
     }
 
-    // 4. Generate interviewer report
     if (requestedBy === "both" || requestedBy === "interviewer") {
-      await generateInterviewerReport({
+      reportJobs.push(generateInterviewerReport({
         interviewId,
         interview,
         interviewer,
@@ -124,10 +164,17 @@ const generateReports = async (interviewId, requestedBy = "both", options = {}) 
         interviewDurationSecs,
         model,
         options,
-      });
+      }));
     }
 
-    console.log(`[Reports] Generation complete for interview ${interviewId}`);
+    const results = await Promise.allSettled([analyticsJob, ...reportJobs]);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        console.error(`[Reports] Independent report generation failed for ${interviewId}:`, result.reason?.message || result.reason);
+      }
+    }
+
+    console.log(`[Reports] Independent report generation finished for interview ${interviewId}`);
   } catch (err) {
     console.error(`[Reports] Unexpected error for interview ${interviewId}:`, err.message);
   }
@@ -298,4 +345,4 @@ const generateInterviewerReport = async ({
   }
 };
 
-module.exports = { generateReports };
+module.exports = { generateReports, hasBothAssignedSpeakers };

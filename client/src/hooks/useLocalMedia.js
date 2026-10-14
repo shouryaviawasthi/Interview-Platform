@@ -15,7 +15,15 @@ export const useLocalMedia = ({ enabled }) => {
     const start = async () => {
       setStatus("requesting");
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: {
+            channelCount: { ideal: 1 },
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: true,
+          },
+        });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;

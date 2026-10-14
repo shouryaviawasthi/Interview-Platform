@@ -26,7 +26,7 @@ const getDurationSeconds = (interview) => {
  * @param {string} interviewId
  * @returns {Promise<Object>}
  */
-const generateInterviewAnalytics = async (interviewId) => {
+const generateInterviewAnalytics = async (interviewId, { force = false } = {}) => {
   console.log(`[Analytics] Starting analytics generation for interview ${interviewId}`);
 
   try {
@@ -37,7 +37,7 @@ const generateInterviewAnalytics = async (interviewId) => {
     }
 
     const existing = await analyticsModel.getAnalyticsByInterviewId(interviewId);
-    if (existing?.status === "completed") {
+    if (existing?.status === "completed" && !force) {
       console.log(`[Analytics] Analytics already completed for ${interviewId} — skipping.`);
       return existing;
     }

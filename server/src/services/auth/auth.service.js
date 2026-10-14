@@ -1,4 +1,5 @@
 const userModel = require("../../models/user.model");
+const ApiError = require("../../utils/ApiError");
 const { hashPassword, comparePassword } = require("../../utils/password");
 const { generateToken } = require("../../utils/jwt");
 
@@ -10,14 +11,14 @@ const registerUser = async (userData) => {
 
     // Validate Input
     if (!name || !email || !password) {
-        throw new Error("Name, email and password are required");
+        throw ApiError.badRequest("Name, email and password are required");
     }
 
     // Check Existing User
     const existingUser = await userModel.findUserByEmail(email);
 
     if (existingUser) {
-        throw new Error("User already exists");
+        throw ApiError.conflict("User already exists");
     }
 
     // Hash Password
@@ -51,14 +52,14 @@ const loginUser = async (userData) => {
 
     // Validate Input
     if (!email || !password) {
-        throw new Error("Email and password are required");
+        throw ApiError.badRequest("Email and password are required");
     }
 
     // Find User
     const user = await userModel.findUserByEmail(email);
 
     if (!user) {
-        throw new Error("Invalid email or password");
+        throw ApiError.unauthorized("Invalid email or password");
     }
 
     // Compare Password
@@ -68,7 +69,7 @@ const loginUser = async (userData) => {
     );
 
     if (!isPasswordValid) {
-        throw new Error("Invalid email or password");
+        throw ApiError.unauthorized("Invalid email or password");
     }
 
     // Generate JWT

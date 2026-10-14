@@ -77,6 +77,7 @@ const joinInterview = async (req, res, next) => {
       interview,
     });
   } catch (error) {
+    console.log(error)
     next(error);
   }
 };
@@ -200,10 +201,10 @@ const endInterview = async (req, res, next) => {
     (async () => {
       try {
         const liveTranscript = require("../services/transcription/liveTranscription.service");
-        if (liveTranscript.isSessionActive(req.params.id)) {
-          await liveTranscript.stopSession(req.params.id);
-          console.log(`[Interview] Flushed and stopped live transcript session for ${req.params.id}`);
-        }
+        // Give each browser time to stop MediaRecorder and deliver its final chunk.
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await liveTranscript.stopSession(req.params.id);
+        console.log(`[Interview] Flushed and stopped live transcript session for ${req.params.id}`);
         const { generateReports } = require("../services/report/report.service");
         generateReports(req.params.id, "both");
         console.log(`[Interview] Auto-triggered Groq report generation for ${req.params.id}`);

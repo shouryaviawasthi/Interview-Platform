@@ -1,53 +1,35 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '../socket/socket';
 
+const TARGET_SAMPLE_RATE = 16000;
+const AUDIO_CHUNK_SECONDS = 1;
+
 /**
- * useLiveTranscript
- *
- * Captures microphone audio in ~4-second chunks via MediaRecorder,
- * sends each chunk to the server via Socket.IO (audio-chunk event),
- * and listens for live-transcript events back from the server.
- *
- * The server pipes the audio to Deepgram Nova-2 live streaming,
- * then broadcasts transcript chunks back to the room.
- *
- * @param {Object} opts
- * @param {string} opts.interviewId    - The interview room ID
- * @param {string} opts.speakerRole    - 'interviewer' or 'candidate'
- * @param {boolean} opts.enabled       - Whether to start/stop sending
- * @param {MediaStream|null} opts.stream - Local microphone stream
+ * Captures microphone audio as mono 16-bit PCM and streams ordered one-second
+ * chunks to Deepgram. PCM avoids relying on independently timed WebM fragments.
  */
-const useLiveTranscript = ({ interviewId, speakerRole, enabled, stream }) => {
-  const [chunks, setChunks] = useState([]);        // { id, speaker, text, isFinal, timestamp }
+const useLiveTranscript = ({ interviewId, enabled, stream }) => {
+  const [chunks, setChunks] = useState([]);
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState(null);
 
-  const recorderRef = useRef(null);
   const socketRef = useRef(null);
-  const enabledRef = useRef(enabled);
-  const chunkIntervalMs = 4000; // send chunk every 4 seconds
+  const activeCaptureRef = useRef(null);
 
-  useEffect(() => { enabledRef.current = enabled; }, [enabled]);
-
-  // ── Listen for transcript chunks from server ───────────────────────
   useEffect(() => {
-    if (!interviewId) return;
+    if (!interviewId) return undefined;
     const socket = getSocket();
-    if (!socket) return;
     socketRef.current = socket;
 
     const handleChunk = (chunk) => {
-      setChunks((prev) => {
-        // If interim result, replace previous interim for same id base
+      setChunks((previous) => {
         if (!chunk.isFinal) {
-          const withoutPrev = prev.filter((c) => c.isFinal || c.interimKey !== chunk.speaker);
-          return [...withoutPrev, { ...chunk, interimKey: chunk.speaker }];
+          const withoutPreviousInterim = previous.filter(
+            (item) => item.isFinal || item.interimKey !== chunk.speaker
+          );
+          return [...withoutPreviousInterim, { ...chunk, interimKey: chunk.speaker }];
         }
-        // Final result: remove any interim for that speaker, add final
-        return [
-          ...prev.filter((c) => c.interimKey !== chunk.speaker),
-          chunk,
-        ];
+        return [...previous.filter((item) => item.interimKey !== chunk.speaker), chunk];
       });
     };
 
@@ -56,102 +38,213 @@ const useLiveTranscript = ({ interviewId, speakerRole, enabled, stream }) => {
       console.warn('[LiveTranscript] Error from server:', message);
     };
 
-    const handleStarted = () => {
-      setIsActive(true);
-      setError(null);
-      console.log('[LiveTranscript] Live session started by server');
-    };
-
-    const handleStopped = () => {
-      setIsActive(false);
-      console.log('[LiveTranscript] Live session stopped by server');
-    };
+    const handleStopped = () => setIsActive(false);
 
     socket.on('live-transcript', handleChunk);
     socket.on('live-transcript-error', handleError);
-    socket.on('live-transcript-started', handleStarted);
     socket.on('live-transcript-stopped', handleStopped);
 
     return () => {
       socket.off('live-transcript', handleChunk);
       socket.off('live-transcript-error', handleError);
-      socket.off('live-transcript-started', handleStarted);
       socket.off('live-transcript-stopped', handleStopped);
+      socketRef.current = null;
     };
   }, [interviewId]);
 
-  // ── Start sending audio chunks when enabled + stream available ─────
   useEffect(() => {
-    if (!enabled || !stream || !interviewId || !socketRef.current) return;
-    if (recorderRef.current) return; // already recording
+    if (!enabled || !stream || !interviewId || !socketRef.current) return undefined;
+    if (activeCaptureRef.current) return undefined;
 
     const socket = socketRef.current;
-
-    // Request server to open Deepgram connection
-    socket.emit('start-live-transcript', { interviewId });
-
-    // Get only the audio track
     const audioTrack = stream.getAudioTracks()[0];
-    if (!audioTrack) return;
-
-    const audioStream = new MediaStream([audioTrack]);
-
-    // Determine best supported mime type
-    const mimeType = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/ogg',
-    ].find((t) => MediaRecorder.isTypeSupported(t)) || '';
-
-    let recorder;
-    try {
-      recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : {});
-    } catch (e) {
-      console.error('[LiveTranscript] MediaRecorder init failed:', e.message);
-      setError('Could not start audio capture for transcription.');
-      return;
+    if (!audioTrack) {
+      setError('No microphone audio track is available for transcription.');
+      return undefined;
     }
 
-    recorder.ondataavailable = (event) => {
-      if (!event.data || event.data.size < 100) return; // skip tiny/silent chunks
-      if (!enabledRef.current) return;
-      event.data.arrayBuffer().then((buffer) => {
-        socket.emit('audio-chunk', {
-          interviewId,
-          chunk: buffer,
-          speaker: speakerRole,
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextConstructor) {
+      setError('This browser does not support live audio transcription.');
+      return undefined;
+    }
+
+    let audioContext;
+    let source;
+    let processor;
+    let silentGain;
+    let cleanedUp = false;
+    let serverReady = false;
+    let stopRequested = false;
+    let pendingOffset = 0;
+    let pendingSamples;
+    let queuedAudio = [];
+    let sendQueue = Promise.resolve();
+
+    const capture = {
+      stop: () => {},
+    };
+    activeCaptureRef.current = capture;
+
+    const stopServerSession = () => {
+      if (stopRequested || !serverReady) return;
+      stopRequested = true;
+      sendQueue = sendQueue.then(() => new Promise((resolve) => {
+        socket.timeout(10000).emit('stop-live-transcript', { interviewId }, (timeoutError, result) => {
+          if (timeoutError || !result?.success) {
+            setError('Could not finish sending the final audio to transcription.');
+            console.error('[LiveTranscript] Server did not acknowledge stream finalization.');
+          }
+          setIsActive(false);
+          resolve();
         });
-      });
+      }));
     };
 
-    recorder.onerror = (e) => {
-      console.error('[LiveTranscript] MediaRecorder error:', e.error?.message);
-      setError('Audio capture error during transcription.');
-    };
-
-    recorder.start(chunkIntervalMs); // fires ondataavailable every 4 seconds
-    recorderRef.current = recorder;
-    console.log('[LiveTranscript] MediaRecorder started, sending chunks every', chunkIntervalMs, 'ms');
-
-    return () => {
-      // Cleanup: stop recorder and tell server to close Deepgram session
-      if (recorder && recorder.state !== 'inactive') {
-        recorder.stop();
+    const sendPcm = (samples) => {
+      const pcm = new ArrayBuffer(samples.length * 2);
+      const dataView = new DataView(pcm);
+      for (let index = 0; index < samples.length; index += 1) {
+        const sample = Math.max(-1, Math.min(1, samples[index]));
+        dataView.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
       }
-      recorderRef.current = null;
-      socket.emit('stop-live-transcript', { interviewId });
+      queuedAudio.push(pcm);
+      if (serverReady) flushQueuedAudio();
     };
-  }, [enabled, stream, interviewId, speakerRole]);
+
+    const flushQueuedAudio = () => {
+      const batches = queuedAudio;
+      queuedAudio = [];
+      for (const chunk of batches) {
+        sendQueue = sendQueue.then(() => new Promise((resolve, reject) => {
+          socket.timeout(15000).emit('audio-chunk', { interviewId, chunk }, (timeoutError, result) => {
+            if (timeoutError) return reject(timeoutError);
+            if (!result?.success) {
+              return reject(new Error(result?.message || 'Server rejected an audio chunk.'));
+            }
+            resolve();
+          });
+        })).catch((sendError) => {
+          setError('Audio could not be delivered for transcription. Check the connection and retry.');
+          console.error('[LiveTranscript] Audio chunk delivery failed:', sendError.message);
+        });
+      }
+    };
+
+    const flushPartialSamples = () => {
+      if (pendingOffset === 0) return;
+      sendPcm(pendingSamples.slice(0, pendingOffset));
+      pendingOffset = 0;
+    };
+
+    const cleanupCapture = () => {
+      if (processor) processor.onaudioprocess = null;
+      try {
+        source?.disconnect();
+        processor?.disconnect();
+        silentGain?.disconnect();
+      } catch (disconnectError) {
+        console.warn('[LiveTranscript] Could not disconnect audio capture nodes:', disconnectError.message);
+      }
+      flushPartialSamples();
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch((closeError) => {
+          console.warn('[LiveTranscript] Could not close audio context:', closeError.message);
+        });
+      }
+      if (activeCaptureRef.current === capture) activeCaptureRef.current = null;
+      if (serverReady) {
+        sendQueue.finally(stopServerSession);
+      }
+    };
+
+    capture.stop = () => {
+      cleanedUp = true;
+      cleanupCapture();
+    };
+
+    const startCapture = async () => {
+      try {
+        audioContext = new AudioContextConstructor({ sampleRate: TARGET_SAMPLE_RATE });
+        if (audioContext.state === 'suspended') await audioContext.resume();
+        if (cleanedUp) return;
+        if (audioContext.state !== 'running') {
+          throw new Error('The browser audio context is suspended; allow microphone audio and retry.');
+        }
+
+        pendingSamples = new Float32Array(
+          Math.max(1, Math.round(audioContext.sampleRate * AUDIO_CHUNK_SECONDS))
+        );
+        source = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        silentGain = audioContext.createGain();
+        silentGain.gain.value = 0;
+
+        processor.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          let inputOffset = 0;
+          while (inputOffset < input.length) {
+            const copyLength = Math.min(
+              input.length - inputOffset,
+              pendingSamples.length - pendingOffset
+            );
+            pendingSamples.set(input.subarray(inputOffset, inputOffset + copyLength), pendingOffset);
+            inputOffset += copyLength;
+            pendingOffset += copyLength;
+
+            if (pendingOffset === pendingSamples.length) {
+              sendPcm(pendingSamples);
+              pendingSamples = new Float32Array(
+                Math.max(1, Math.round(audioContext.sampleRate * AUDIO_CHUNK_SECONDS))
+              );
+              pendingOffset = 0;
+            }
+          }
+        };
+
+        source.connect(processor);
+        processor.connect(silentGain);
+        silentGain.connect(audioContext.destination);
+
+        socket.timeout(15000).emit(
+          'start-live-transcript',
+          { interviewId, sampleRate: audioContext.sampleRate },
+          (timeoutError, result) => {
+            if (timeoutError || !result?.success) {
+              const message = result?.message || 'Could not connect to the live transcription service.';
+              setError(message);
+              console.error('[LiveTranscript] Could not start stream:', message);
+              cleanedUp = true;
+              cleanupCapture();
+              return;
+            }
+            serverReady = true;
+            setIsActive(true);
+            setError(null);
+            flushQueuedAudio();
+            if (cleanedUp) sendQueue.finally(stopServerSession);
+          }
+        );
+      } catch (captureError) {
+        if (!cleanedUp) {
+          setError(captureError.message || 'Could not start microphone audio capture.');
+        }
+        console.error('[LiveTranscript] Audio capture initialization failed:', captureError);
+        cleanedUp = true;
+        cleanupCapture();
+      }
+    };
+
+    startCapture();
+    return () => capture.stop();
+  }, [enabled, stream, interviewId]);
 
   const clearTranscript = useCallback(() => setChunks([]), []);
-
-  // Final-only segments (no interim duplicates)
-  const finalChunks = chunks.filter((c) => c.isFinal);
+  const finalChunks = chunks.filter((chunk) => chunk.isFinal);
 
   return {
-    chunks,          // all chunks including interim
-    finalChunks,     // only finalized chunks
+    chunks,
+    finalChunks,
     isActive,
     error,
     clearTranscript,

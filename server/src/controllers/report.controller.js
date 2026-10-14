@@ -129,7 +129,7 @@ const getCandidateReport = async (req, res, next) => {
         ? {
             id: report.id,
             status: report.status,
-            overallScore: report.overall_score ? parseFloat(report.overall_score) : null,
+            overallScore: report.overall_score != null ? parseFloat(report.overall_score) : null,
             recommendation: report.recommendation,
             reportJson: report.report_json,
             llmModel: report.llm_model,
@@ -168,7 +168,7 @@ const getInterviewerReport = async (req, res, next) => {
         ? {
             id: report.id,
             status: report.status,
-            overallScore: report.overall_score ? parseFloat(report.overall_score) : null,
+            overallScore: report.overall_score != null ? parseFloat(report.overall_score) : null,
             reportJson: report.report_json,
             llmModel: report.llm_model,
             errorMessage: report.error_message,
@@ -334,7 +334,7 @@ const publicGetCandidateReport = async (req, res, next) => {
       report: report
         ? {
             status: report.status,
-            overallScore: report.overall_score ? parseFloat(report.overall_score) : null,
+            overallScore: report.overall_score != null ? parseFloat(report.overall_score) : null,
             recommendation: report.recommendation,
             reportJson: report.report_json,
             llmModel: report.llm_model,
@@ -384,4 +384,3 @@ module.exports = {
   publicGetCandidateReport,
   publicDownloadCandidatePdf,
 };
-

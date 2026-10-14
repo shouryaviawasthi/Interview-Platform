@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, Navigate } from "react-router-dom";
+import {v4 as uuidv4} from "uuid";
 import {
   FiMic,
   FiMicOff,
@@ -30,14 +31,13 @@ import LiveTimer from "../components/interview/LiveTimer";
 import Modal from "../components/ui/Modal";
 import Loader from "../components/ui/Loader";
 import Button from "../components/ui/Button";
-import CandidateEndScreen from "../components/interview/CandidateEndScreen";
 import { ROUTES } from "../constants/routes";
 
 const getOrCreateCandidateId = (token) => {
   const key = `aip_candidate_id_${token}`;
   let id = sessionStorage.getItem(key);
   if (!id) {
-    id = crypto.randomUUID();
+    id = uuidv4();
     sessionStorage.setItem(key, id);
   }
   return id;
@@ -164,12 +164,26 @@ const InterviewRoom = () => {
 
   // ─── Live Transcript (Phase 6 — Deepgram) ────────────────────────────────
   const [showTranscript, setShowTranscript] = useState(true);
-  const { chunks: liveChunks, finalChunks, isActive: transcriptActive } = useLiveTranscript({
+  const {
+    chunks: liveChunks,
+    finalChunks,
+    isActive: transcriptActive,
+    error: transcriptError,
+  } = useLiveTranscript({
     interviewId: interviewMeta?.id,
-    speakerRole: roomUser?.role || "candidate",
     enabled: isLive && !!localStream,
     stream: localStream,
   });
+  const transcriptErrorRef = useRef(null);
+  useEffect(() => {
+    if (!transcriptError) {
+      transcriptErrorRef.current = null;
+      return;
+    }
+    if (transcriptErrorRef.current === transcriptError) return;
+    transcriptErrorRef.current = transcriptError;
+    toast.error(transcriptError);
+  }, [transcriptError]);
   const transcriptEndRef = useRef(null);
   useEffect(() => {
     if (showTranscript) transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -287,10 +301,10 @@ const InterviewRoom = () => {
     // Candidate gets their own dedicated end-of-interview dashboard
     if (!isAuthenticated && token) {
       return (
-        <CandidateEndScreen
-          token={token}
-          candidateName={interviewMeta?.candidate_name || "Candidate"}
-          durationSeconds={endPayload?.durationSeconds}
+        <Navigate
+          to={ROUTES.candidateDashboard(token)}
+          replace
+          state={{ durationSeconds: endPayload?.durationSeconds }}
         />
       );
     }

@@ -39,6 +39,16 @@ const processAudio = async (interviewId) => {
       return;
     }
 
+    const existingSegments = await transcriptModel.getSegmentsByInterviewId(interviewId);
+    const hasLiveRoleTranscript =
+      existingSegments.some((segment) => (segment.speaker || segment.speaker_type) === "interviewer") &&
+      existingSegments.some((segment) => (segment.speaker || segment.speaker_type) === "candidate");
+    if (hasLiveRoleTranscript) {
+      await audioModel.updateAudioStatus(interviewId, "completed");
+      console.log(`[Transcription] Preserving role-attributed live transcript for interview ${interviewId}.`);
+      return;
+    }
+
     // 3. Mark as processing
     await audioModel.updateAudioStatus(interviewId, "processing");
 
@@ -60,9 +70,10 @@ const processAudio = async (interviewId) => {
     // 6. Store segments with rawSpeaker in the `speaker` column (existing) and
     //    speaker_type = 'unknown' initially. The interviewer will assign roles via UI.
     const segments = rawSegments.map((seg, idx) => ({
+      speaker: seg.rawSpeaker || "unknown",
       speaker_type: "unknown",
       text: seg.text,
-      start_time: seg.startTime,
+      start_time: Number.isFinite(Number(seg.startTime)) ? Number(seg.startTime) : 0,
       end_time: seg.endTime,
       sequence_num: idx + 1,
       confidence: seg.confidence,
@@ -120,23 +131,29 @@ const insertSegmentsWithRaw = async (interviewId, segments) => {
 
   const values = [];
   const placeholders = segments.map((seg, i) => {
-    const base = i * 8;
+    const base = i * 10;
+    const startTime = Number.isFinite(Number(seg.start_time)) ? Number(seg.start_time) : 0;
+    const endTime = seg.end_time != null && Number.isFinite(Number(seg.end_time))
+      ? Number(seg.end_time)
+      : null;
     values.push(
       interviewId,
-      seg._rawSpeaker,      // stored in existing `speaker` column
+      seg._rawSpeaker || "unknown",
       seg.speaker_type,     // stored in new `speaker_type` column
       seg.text,
-      seg.start_time ?? null,
-      seg.end_time ?? null,
+      startTime,
+      startTime,
+      endTime,
       seg.sequence_num,
       seg.confidence ?? null,
+      seg.language ?? null,
     );
-    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`;
+    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`;
   });
 
   const query = `
     INSERT INTO transcripts
-      (interview_id, speaker, speaker_type, transcript_text, start_time, end_time, sequence_num, confidence)
+      (interview_id, speaker, speaker_type, transcript_text, time_offset_seconds, start_time, end_time, sequence_num, confidence, language)
     VALUES ${placeholders.join(", ")}
   `;
   await pool.query(query, values);
@@ -153,8 +170,16 @@ const applySpeakerMap = async (interviewId, speakerMap) => {
   const validRoles = ["interviewer", "candidate"];
   for (const [raw, role] of Object.entries(speakerMap)) {
     if (!validRoles.includes(role)) {
-      throw new Error(`Invalid speaker role "${role}". Must be interviewer or candidate.`);
+      const error = new Error(`Invalid speaker role "${role}". Must be interviewer or candidate.`);
+      error.statusCode = 400;
+      throw error;
     }
+  }
+  const assignedRoles = new Set(Object.values(speakerMap));
+  if (!assignedRoles.has("interviewer") || !assignedRoles.has("candidate")) {
+    const error = new Error("Assign at least one detected speaker to each participant.");
+    error.statusCode = 400;
+    throw error;
   }
 
   // Update each raw speaker group

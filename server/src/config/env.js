@@ -14,5 +14,5 @@ module.exports = {
   DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY || "",
 
   GROQ_API_KEY: process.env.GROQ_API_KEY || "",
-  GROQ_MODEL:   process.env.GROQ_MODEL   || "llama-3.1-70b-versatile",
+  GROQ_MODEL:   process.env.GROQ_MODEL   || "openai/gpt-oss-120b",
 };

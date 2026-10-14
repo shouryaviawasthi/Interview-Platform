@@ -102,33 +102,51 @@ const registerInterviewEvents = (io) => {
     /**
      * EVENT: start-live-transcript
      * Payload: { interviewId }
-     * Only the interviewer triggers this when the interview goes live.
-     * Creates a Deepgram live connection for the room.
+     * Each joined participant opens a separate stream when the interview goes live.
      */
-    socket.on("start-live-transcript", async ({ interviewId } = {}) => {
-      if (!interviewId) return;
+    socket.on("start-live-transcript", async ({ interviewId, sampleRate } = {}, acknowledge) => {
+      if (!interviewId) {
+        acknowledge?.({ success: false, message: "Interview ID is required." });
+        return;
+      }
+      if (socket.interviewId !== interviewId || !socket.userInfo) {
+        const message = "Join the interview room before starting transcription.";
+        acknowledge?.({ success: false, message });
+        socket.emit("live-transcript-error", { message });
+        return;
+      }
       try {
-        await liveTranscript.startSession(interviewId, io);
+        await liveTranscript.startSession(interviewId, io, socket.userInfo.role, sampleRate);
+        acknowledge?.({ success: true });
         socket.emit("live-transcript-started", { interviewId });
         console.log(`[Socket] Live transcript started for ${interviewId}`);
       } catch (err) {
         console.error(`[Socket] Failed to start live transcript for ${interviewId}:`, err.message);
-        socket.emit("live-transcript-error", { message: "Could not start live transcription: " + err.message });
+        const message = "Could not start live transcription: " + err.message;
+        acknowledge?.({ success: false, message });
+        socket.emit("live-transcript-error", { message });
       }
     });
 
     /**
      * EVENT: audio-chunk
-     * Payload: { interviewId, chunk: ArrayBuffer | Buffer, speaker: "interviewer"|"candidate" }
-     * Both interviewer and candidate send their mic audio chunks.
+     * Payload: { interviewId, chunk: ArrayBuffer | Buffer }
+     * The server routes each chunk using the participant role from join-room.
      */
-    socket.on("audio-chunk", ({ interviewId, chunk, speaker } = {}) => {
-      if (!interviewId || !chunk) return;
+    socket.on("audio-chunk", ({ interviewId, chunk } = {}, acknowledge) => {
+      if (!interviewId || !chunk || socket.interviewId !== interviewId || !socket.userInfo) {
+        acknowledge?.({ success: false, message: "Audio chunk is missing or the participant is not in this interview." });
+        return;
+      }
       try {
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        liveTranscript.sendAudioChunk(interviewId, buffer, speaker);
+        const sent = liveTranscript.sendAudioChunk(interviewId, socket.userInfo.role, buffer);
+        acknowledge?.(sent
+          ? { success: true }
+          : { success: false, message: "The transcription stream is not ready to receive audio." });
       } catch (err) {
-        // Silently ignore send errors — non-fatal
+        console.error(`[Socket] Failed to forward audio chunk for ${interviewId}:`, err.message);
+        acknowledge?.({ success: false, message: "Could not forward audio to transcription." });
       }
     });
 
@@ -137,11 +155,21 @@ const registerInterviewEvents = (io) => {
      * Payload: { interviewId }
      * Called when the interview ends. Closes Deepgram connection.
      */
-    socket.on("stop-live-transcript", async ({ interviewId } = {}) => {
-      if (!interviewId) return;
-      const finalSegments = await liveTranscript.stopSession(interviewId);
-      socket.emit("live-transcript-stopped", { interviewId, segmentCount: finalSegments.length });
-      console.log(`[Socket] Live transcript stopped for ${interviewId}, ${finalSegments.length} final segments`);
+    socket.on("stop-live-transcript", async ({ interviewId } = {}, acknowledge) => {
+      if (!interviewId || socket.interviewId !== interviewId || !socket.userInfo) {
+        acknowledge?.({ success: false, message: "Participant is not in this interview." });
+        return;
+      }
+      try {
+        const finalSegments = await liveTranscript.stopSession(interviewId, socket.userInfo.role);
+        const result = { interviewId, segmentCount: finalSegments.length };
+        acknowledge?.({ success: true });
+        socket.emit("live-transcript-stopped", result);
+        console.log(`[Socket] Live transcript stopped for ${interviewId}, ${finalSegments.length} final segments`);
+      } catch (err) {
+        console.error(`[Socket] Failed to stop live transcript for ${interviewId}:`, err.message);
+        acknowledge?.({ success: false, message: "Could not finalize the transcript." });
+      }
     });
 
     // ─────────────────────────────────────────────

@@ -2,21 +2,34 @@ const fs = require("fs");
 const path = require("path");
 const { pool } = require("./src/config/db");
 
-const runSchema = async () => {
+const runSqlFile = async (fileName) => {
+  const filePath = path.join(__dirname, "..", "database", fileName);
+  const sql = fs.readFileSync(filePath, "utf-8");
+  await pool.query(sql);
+  console.log(`✅ Applied ${fileName}`);
+};
+
+const runDatabaseSetup = async () => {
   try {
-    const schemaPath = path.join(__dirname, "..", "database", "schema.sql");
-    const schema = fs.readFileSync(schemaPath, "utf-8");
+    const migrationFiles = [
+      "schema.sql",
+      "migration_phase3.sql",
+      "migration_phase4.sql",
+      "migration_phase5.sql",
+    ];
 
-    console.log("⏳ Running schema.sql against the database...\n");
+    for (const fileName of migrationFiles) {
+      console.log(`⏳ Applying ${fileName}...`);
+      await runSqlFile(fileName);
+    }
 
-    await pool.query(schema);
-
-    console.log("✅ All tables created successfully!");
-    process.exit(0);
+    console.log("✅ Database setup complete!");
   } catch (error) {
-    console.error("❌ Failed to run schema:", error.message);
+    console.error("❌ Failed to set up database:", error.message);
     process.exit(1);
+  } finally {
+    await pool.end();
   }
 };
 
-runSchema();
+runDatabaseSetup();

@@ -31,7 +31,7 @@ const generateStructuredResponse = async ({
   temperature = 0.2,
 }) => {
   const client = getClient();
-  const model = env.GROQ_MODEL || "llama-3.1-70b-versatile";
+  const model = env.GROQ_MODEL || "openai/gpt-oss-120b";
 
   console.log(`[Groq] Calling model: ${model} with maxTokens: ${maxTokens}, temperature: ${temperature}`);
 
@@ -121,4 +121,3 @@ const generateStructuredResponse = async ({
 };
 
 module.exports = { generateStructuredResponse };
-

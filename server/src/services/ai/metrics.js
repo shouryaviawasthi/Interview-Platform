@@ -40,9 +40,15 @@ const computeMetrics = (segments, interviewDurationSeconds) => {
   let candidateSecs = 0;
   let interviewerTurns = 0;
   let candidateTurns = 0;
+  let interviewerWords = 0;
+  let candidateWords = 0;
+  let totalWords = 0;
 
   for (const seg of segments) {
     const spk = getSpeaker(seg);
+    const text = seg.text || seg.transcript_text || "";
+    const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+    totalWords += wordCount;
     const dur =
       seg.start_time != null && seg.end_time != null
         ? Math.max(0, (seg.end_time - seg.start_time))
@@ -51,9 +57,11 @@ const computeMetrics = (segments, interviewDurationSeconds) => {
     if (spk === "interviewer") {
       interviewerSecs += dur;
       interviewerTurns++;
+      interviewerWords += wordCount;
     } else if (spk === "candidate") {
       candidateSecs += dur;
       candidateTurns++;
+      candidateWords += wordCount;
     }
   }
 
@@ -77,12 +85,19 @@ const computeMetrics = (segments, interviewDurationSeconds) => {
     interviewerSpeakingFormatted: formatTime(Math.round(interviewerSecs)),
     interviewerPct,
     interviewerTurns,
+    interviewerWords,
 
     candidateSpeakingSeconds: Math.round(candidateSecs),
     candidateSpeakingFormatted: formatTime(Math.round(candidateSecs)),
     candidatePct,
     candidateTurns,
+    candidateWords,
 
+    totalWords,
+    speakingTimeRatio: {
+      interviewer: interviewerPct,
+      candidate: candidatePct,
+    },
     totalSegments: segments.length,
     estimatedQuestions: countEstimatedQuestions(segments),
   };

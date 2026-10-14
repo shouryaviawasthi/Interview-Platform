@@ -77,6 +77,25 @@ const runPhase4Migration = async () => {
   logger.info("✅ Database tables verified (Phase 4 & Phase 5).");
 };
 
+const verifyBaseSchema = async () => {
+  const requiredTables = ["users", "interviews", "resumes", "transcripts", "reports"];
+  const { rows } = await pool.query(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = current_schema()
+       AND table_name = ANY($1::text[])`,
+    [requiredTables]
+  );
+  const existingTables = new Set(rows.map(({ table_name }) => table_name));
+  const missingTables = requiredTables.filter((table) => !existingTables.has(table));
+
+  if (missingTables.length > 0) {
+    throw new Error(
+      `Database base schema is missing required table(s): ${missingTables.join(", ")}. Run "npm run db:setup" from the server directory.`
+    );
+  }
+};
+
 const autoProcessUploadedAudio = async () => {
   try {
     const { processAudio } = require("./services/transcription/transcription.service");
@@ -96,6 +115,8 @@ const startServer = async () => {
   try {
     // Connect to Database
     await connectDB();
+
+    await verifyBaseSchema();
 
     // Run Phase 4 migration (idempotent — IF NOT EXISTS)
     await runPhase4Migration();
@@ -121,7 +142,7 @@ const startServer = async () => {
     });
 
     // Start Server
-    server.listen(env.PORT, () => {
+    server.listen(env.PORT, "0.0.0.0", () => {
       logger.info(
         `🚀 Server running in ${env.NODE_ENV} mode on port ${env.PORT}`
       );

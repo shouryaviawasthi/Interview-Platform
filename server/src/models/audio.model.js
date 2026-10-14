@@ -51,11 +51,31 @@ const updateAudioStatus = async (interview_id, status, error_message = null) => 
 const saveSpeakerMap = async (interview_id, speakerMap) => {
   const query = `
     UPDATE interview_audio
-    SET speaker_map = $2
+    SET speaker_map = COALESCE(speaker_map, '{}'::jsonb) || $2::jsonb
     WHERE interview_id = $1
     RETURNING *
   `;
   const result = await pool.query(query, [interview_id, JSON.stringify(speakerMap)]);
+  return result.rows[0] || null;
+};
+
+/**
+ * Replace the live transcript placeholder with the uploaded recording.
+ */
+const replaceLiveAudioRecord = async ({ interview_id, file_path, file_name, mime_type, file_size }) => {
+  const result = await pool.query(
+    `UPDATE interview_audio
+     SET file_path = $2,
+         file_name = $3,
+         mime_type = $4,
+         file_size = $5,
+         status = 'uploaded',
+         processed_at = NULL,
+         error_message = NULL
+     WHERE interview_id = $1 AND file_path = 'live_stream_chunks'
+     RETURNING *`,
+    [interview_id, file_path, file_name, mime_type, file_size]
+  );
   return result.rows[0] || null;
 };
 
@@ -64,4 +84,5 @@ module.exports = {
   getAudioByInterviewId,
   updateAudioStatus,
   saveSpeakerMap,
+  replaceLiveAudioRecord,
 };

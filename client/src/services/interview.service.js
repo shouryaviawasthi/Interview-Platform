@@ -140,36 +140,32 @@ export const retryAnalytics = async (id) => {
 
 // ─── Phase 6: PDF Reports & Export ─────────────────────────────────────────
 
+const downloadPdfBlob = (data, filename) => {
+  const blob = new Blob([data], { type: "application/pdf" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+};
+
 export const downloadCandidateReportPdf = async (id, candidateName = "Candidate") => {
   const response = await api.get(`/interviews/${id}/reports/candidate/pdf`, {
     responseType: "blob",
   });
-  const blob = new Blob([response.data], { type: "application/pdf" });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
   const safeName = candidateName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  link.setAttribute("download", `Candidate_Report_${safeName}.pdf`);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  downloadPdfBlob(response.data, `Candidate_Report_${safeName}.pdf`);
 };
 
 export const downloadInterviewerReportPdf = async (id, interviewerName = "Interviewer") => {
   const response = await api.get(`/interviews/${id}/reports/interviewer/pdf`, {
     responseType: "blob",
   });
-  const blob = new Blob([response.data], { type: "application/pdf" });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
   const safeName = interviewerName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  link.setAttribute("download", `Interviewer_Report_${safeName}.pdf`);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  downloadPdfBlob(response.data, `Interviewer_Report_${safeName}.pdf`);
 };
 
 // ─── Public (no auth) — candidate report access via join token ──────────────
@@ -190,15 +186,6 @@ export const downloadPublicCandidateReportPdf = async (token, candidateName = "C
   const response = await api.get(`/interviews/public/${token}/candidate-report/pdf`, {
     responseType: "blob",
   });
-  const blob = new Blob([response.data], { type: "application/pdf" });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
   const safeName = candidateName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  link.setAttribute("download", `My_Interview_Report_${safeName}.pdf`);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  downloadPdfBlob(response.data, `My_Interview_Report_${safeName}.pdf`);
 };
-

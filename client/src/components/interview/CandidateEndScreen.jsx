@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   FiCheckCircle, FiLoader, FiDownload, FiAward,
-  FiAlertTriangle, FiUser, FiZap, FiBarChart2, FiMessageSquare, FiBookmark,
+  FiAlertTriangle, FiClock, FiUser, FiZap, FiBarChart2, FiMessageSquare, FiBookmark,
 } from 'react-icons/fi';
+import toast from 'react-hot-toast';
 import { getPublicCandidateReport, downloadPublicCandidateReportPdf } from '../../services/interview.service';
 import { ROUTES } from '../../constants/routes';
 
@@ -73,16 +74,20 @@ const REC_LABEL = {
  */
 const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
   const [report, setReport] = useState(null);
-  const [interviewId, setInterviewId] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [pdfDownloaded, setPdfDownloaded] = useState(false);
+  const [reportCandidateName, setReportCandidateName] = useState(candidateName);
+  const [reportLoadError, setReportLoadError] = useState(null);
 
   const loadReport = useCallback(async () => {
     try {
       const data = await getPublicCandidateReport(token);
       setReport(data.report);
-      if (data.interviewId) setInterviewId(data.interviewId);
+      if (data.candidateName) setReportCandidateName(data.candidateName);
+      setReportLoadError(null);
       return data.report;
-    } catch {
+    } catch (error) {
+      setReportLoadError(error.response?.data?.message || error.message || 'Could not load your interview report.');
       return null;
     }
   }, [token]);
@@ -94,22 +99,27 @@ const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
   // Poll while processing
   useEffect(() => {
     if (!report) return;
-    if (report.status === 'processing' || report.status === 'not_started') {
+    const waitingForSpeakerAssignment = report.status === 'not_started' && report.errorMessage;
+    if (!reportLoadError && (report.status === 'processing'
+      || (report.status === 'not_started' && !waitingForSpeakerAssignment))) {
       const iv = setInterval(async () => {
         const r = await loadReport();
         if (r?.status === 'completed' || r?.status === 'failed') clearInterval(iv);
       }, 4000);
       return () => clearInterval(iv);
     }
-  }, [report?.status, loadReport]);
+  }, [report?.status, report?.errorMessage, reportLoadError, loadReport]);
 
   const handleDownload = async () => {
     if (!token) return;
     setDownloading(true);
+    setPdfDownloaded(false);
     try {
-      await downloadPublicCandidateReportPdf(token, candidateName || 'Candidate');
-    } catch {
-      alert('PDF is not ready yet. Please try again in a moment.');
+      await downloadPublicCandidateReportPdf(token, reportCandidateName || 'Candidate');
+      setPdfDownloaded(true);
+      toast.success('Your candidate report PDF was downloaded.');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not download your report PDF.');
     } finally {
       setDownloading(false);
     }
@@ -131,14 +141,24 @@ const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
             Interview Complete
           </h1>
           <p className="mt-1.5 text-sm text-white/50">
-            {candidateName && <span className="text-white/70">{candidateName} · </span>}
+            {reportCandidateName && <span className="text-white/70">{reportCandidateName} · </span>}
             {durationSeconds ? formatDuration(durationSeconds) : 'Session ended'}
           </p>
         </div>
 
         {/* Status card */}
         <div className="mb-5 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5">
-          {(status === 'not_started' || status === 'processing') && (
+          {!reportLoadError && status === 'not_started' && report?.errorMessage && (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <FiClock className="h-8 w-8 text-amber-300" />
+              <p className="text-sm font-medium text-white/70">
+                Your interviewer is preparing the transcript before reports can be generated.
+              </p>
+            </div>
+          )}
+
+          {!reportLoadError && (status === 'processing'
+            || (status === 'not_started' && !report?.errorMessage)) && (
             <div className="flex flex-col items-center gap-3 py-6 text-center">
               <FiLoader className="h-9 w-9 animate-spin text-lav-400" />
               <p className="text-sm font-medium text-white/70">
@@ -153,8 +173,24 @@ const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
           {status === 'failed' && (
             <div className="flex flex-col items-center gap-3 py-6 text-center">
               <FiAlertTriangle className="h-9 w-9 text-red-400" />
-              <p className="text-sm text-white/60">Report generation encountered an issue.</p>
-              <p className="text-xs text-white/30">Please contact your interviewer for the report.</p>
+              <p className="text-sm text-white/60">Your analysis could not be generated.</p>
+              <p className="max-w-lg text-xs text-white/40">
+                {report?.errorMessage || 'Please contact your interviewer and ask them to retry report generation.'}
+              </p>
+            </div>
+          )}
+
+          {reportLoadError && (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <FiAlertTriangle className="h-8 w-8 text-amber-300" />
+              <p className="text-sm text-white/60">{reportLoadError}</p>
+              <button
+                type="button"
+                onClick={loadReport}
+                className="rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/15"
+              >
+                Try loading report again
+              </button>
             </div>
           )}
 
@@ -182,7 +218,23 @@ const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
                 <ScoreBar label="Problem Solving" score={rpt.problemSolving?.score} icon={FiBarChart2} />
                 <ScoreBar label="Communication" score={rpt.communication?.score} icon={FiMessageSquare} />
                 <ScoreBar label="Behavioral" score={rpt.behavioralPerformance?.score} icon={FiUser} />
+                <ScoreBar label="Job Fit" score={rpt.jobFit?.score} icon={FiAward} />
               </div>
+
+              {(rpt.technicalEvaluation?.strengths?.length > 0 || rpt.strengths?.length > 0) && (
+                <div className="border-t border-white/[0.06] pt-4">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-emerald-300/70">
+                    Strengths
+                  </p>
+                  <ul className="space-y-1.5">
+                    {(rpt.technicalEvaluation?.strengths ?? rpt.strengths).slice(0, 3).map((strength, index) => (
+                      <li key={`${strength}-${index}`} className="text-xs text-white/60">
+                        {strength}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Strengths/Improvements quick view */}
               {rpt.areasForImprovement?.length > 0 && (
@@ -207,15 +259,17 @@ const CandidateEndScreen = ({ token, candidateName, durationSeconds }) => {
               <div className="border-t border-white/[0.06] pt-4">
                 <button
                   onClick={handleDownload}
-                  disabled={downloading}
+                  disabled={downloading || status !== 'completed'}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-lav-600 py-3 text-sm font-semibold text-white hover:bg-lav-700 transition-colors disabled:opacity-50"
                 >
                   {downloading ? (
                     <FiLoader className="h-4 w-4 animate-spin" />
+                  ) : pdfDownloaded ? (
+                    <FiCheckCircle className="h-4 w-4" />
                   ) : (
                     <FiDownload className="h-4 w-4" />
                   )}
-                  {downloading ? 'Preparing PDF…' : 'Download My Report PDF'}
+                  {downloading ? 'Preparing PDF…' : pdfDownloaded ? 'PDF Downloaded — Download Again' : 'Download My Report PDF'}
                 </button>
               </div>
 

@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- USERS TABLE
 -- ============================================================
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     name VARCHAR(100) NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE users (
 -- INTERVIEWS TABLE
 -- ============================================================
 
-CREATE TABLE interviews (
+CREATE TABLE IF NOT EXISTS interviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     interviewer_id UUID NOT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE interviews (
 -- RESUMES TABLE
 -- ============================================================
 
-CREATE TABLE resumes (
+CREATE TABLE IF NOT EXISTS resumes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     interview_id UUID UNIQUE NOT NULL,
@@ -88,14 +88,12 @@ CREATE TABLE resumes (
 -- TRANSCRIPTS TABLE
 -- ============================================================
 
-CREATE TABLE transcripts (
+CREATE TABLE IF NOT EXISTS transcripts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     interview_id UUID NOT NULL,
 
-    speaker VARCHAR(20)
-        CHECK (speaker IN ('interviewer', 'candidate'))
-        NOT NULL,
+    speaker VARCHAR(100) NOT NULL,
 
     time_offset_seconds NUMERIC(10,2) NOT NULL,
 
@@ -113,7 +111,7 @@ CREATE TABLE transcripts (
 -- REPORTS TABLE
 -- ============================================================
 
-CREATE TABLE reports (
+CREATE TABLE IF NOT EXISTS reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     interview_id UUID UNIQUE NOT NULL,
@@ -144,20 +142,20 @@ CREATE TABLE reports (
 -- INDEXES
 -- ============================================================
 
-CREATE INDEX idx_users_email
+CREATE INDEX IF NOT EXISTS idx_users_email
 ON users(email);
 
-CREATE INDEX idx_interviews_interviewer
+CREATE INDEX IF NOT EXISTS idx_interviews_interviewer
 ON interviews(interviewer_id);
 
-CREATE INDEX idx_interviews_status
+CREATE INDEX IF NOT EXISTS idx_interviews_status
 ON interviews(status);
 
-CREATE INDEX idx_resumes_interview
+CREATE INDEX IF NOT EXISTS idx_resumes_interview
 ON resumes(interview_id);
 
-CREATE INDEX idx_transcripts_interview
+CREATE INDEX IF NOT EXISTS idx_transcripts_interview
 ON transcripts(interview_id);
 
-CREATE INDEX idx_reports_interview
+CREATE INDEX IF NOT EXISTS idx_reports_interview
 ON reports(interview_id);

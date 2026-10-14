@@ -47,6 +47,10 @@ const query = `
   the existing Socket.IO contract (`join-room` / `leave-room` / `room-state` / `user-joined` /
   `user-left`) for real-time presence, plus a local camera/mic preview via `getUserMedia` with
   mute/camera toggles and a room activity feed.
+- **Post-interview reports**: candidates are sent to their public
+  `/candidate/dashboard/:token` report dashboard; interviewers are sent to their authenticated
+  `/interviews/:id/end` dashboard. Each dashboard shows that participant's own analysis and
+  PDF download. Interviewers can retry failed report generation from their dashboard.
 
 ## Known limitation (by design, matches current backend)
 
