@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { FiMic, FiMicOff, FiVideo, FiVideoOff } from "react-icons/fi";
 
 const ParticipantTile = ({
@@ -12,12 +12,32 @@ const ParticipantTile = ({
   mediaStatus = "ready",
 }) => {
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
+  const hasRemoteVideo = remoteStream?.getVideoTracks().some((track) => track.readyState === "live");
+  const hasRemoteAudio = remoteStream?.getAudioTracks().some((track) => track.readyState === "live");
 
   useEffect(() => {
-    if (!isSelf && remoteStream && remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
+    if (isSelf || !remoteStream) return;
+    const mediaElement = hasRemoteVideo ? remoteVideoRef.current : remoteAudioRef.current;
+    if (!mediaElement) return;
+
+    mediaElement.srcObject = remoteStream;
+    mediaElement.play()
+      .then(() => setPlaybackBlocked(false))
+      .catch(() => setPlaybackBlocked(true));
+  }, [hasRemoteVideo, hasRemoteAudio, isSelf, remoteStream]);
+
+  const enablePlayback = async () => {
+    const mediaElement = hasRemoteVideo ? remoteVideoRef.current : remoteAudioRef.current;
+    if (!mediaElement) return;
+    try {
+      await mediaElement.play();
+      setPlaybackBlocked(false);
+    } catch {
+      setPlaybackBlocked(true);
     }
-  }, [isSelf, remoteStream]);
+  };
 
   return (
     <div className="group relative aspect-video overflow-hidden rounded-2xl bg-ink-900 shadow-[var(--shadow-soft)]">
@@ -29,13 +49,23 @@ const ParticipantTile = ({
           playsInline
           className="h-full w-full scale-x-[-1] object-cover"
         />
-      ) : !isSelf && remoteStream ? (
+      ) : !isSelf && remoteStream && hasRemoteVideo ? (
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
           className="h-full w-full object-cover"
         />
+      ) : !isSelf && remoteStream && hasRemoteAudio ? (
+        <>
+          <audio ref={remoteAudioRef} autoPlay playsInline />
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-lav-500/25 font-display text-lg font-semibold text-lav-100 ring-2 ring-lav-400/40">
+              {name?.[0]?.toUpperCase() || "?"}
+            </span>
+            <span className="text-xs font-medium text-lav-100/60">Audio connected · camera unavailable</span>
+          </div>
+        </>
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-lav-500/25 font-display text-lg font-semibold text-lav-100 ring-2 ring-lav-400/40">
@@ -45,6 +75,16 @@ const ParticipantTile = ({
             <span className="text-xs font-medium text-lav-100/60">Camera off &middot; UI preview</span>
           )}
         </div>
+      )}
+
+      {!isSelf && playbackBlocked && (
+        <button
+          type="button"
+          onClick={enablePlayback}
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-black/75 px-4 py-2 text-sm font-semibold text-white"
+        >
+          Tap to enable remote audio/video
+        </button>
       )}
 
       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-transparent px-3 py-2.5">

@@ -16,6 +16,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     // Determine extension from MIME type (browsers may send audio/webm, audio/ogg, audio/mp4)
+    const mimeType = file.mimetype.split(";")[0].trim().toLowerCase();
     const mimeToExt = {
       "audio/webm": ".webm",
       "audio/ogg": ".ogg",
@@ -23,17 +24,18 @@ const storage = multer.diskStorage({
       "audio/mpeg": ".mp3",
       "audio/wav": ".wav",
     };
-    const ext = mimeToExt[file.mimetype] || ".webm";
+    const ext = mimeToExt[mimeType] || ".webm";
     cb(null, `interview-${uuidv4()}${ext}`);
   },
 });
 
 const fileFilter = (req, file, cb) => {
   const allowed = ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"];
-  if (allowed.includes(file.mimetype)) {
+  const mimeType = file.mimetype.split(";")[0].trim().toLowerCase();
+  if (allowed.includes(mimeType)) {
     cb(null, true);
   } else {
-    cb(new Error(`Unsupported audio format: ${file.mimetype}. Allowed: webm, ogg, mp4, mpeg, wav`), false);
+    cb(new Error(`Unsupported audio format: ${mimeType}. Allowed: webm, ogg, mp4, mpeg, wav`), false);
   }
 };
 

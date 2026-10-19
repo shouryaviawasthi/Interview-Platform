@@ -20,6 +20,11 @@ export const getInterviewById = async (id) => {
   return data.interview;
 };
 
+export const regenerateJoinLink = async (id) => {
+  const { data } = await api.post(`/interviews/${id}/join-link/regenerate`);
+  return data.interview;
+};
+
 export const updateInterview = async (id, updates) => {
   const { data } = await api.put(`/interviews/${id}`, updates);
   return data.interview;

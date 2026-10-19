@@ -1,39 +1,55 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { acquireLocalMedia, takePreparedMedia } from "../lib/localMedia";
 
-export const useLocalMedia = ({ enabled }) => {
+export const useLocalMedia = ({ enabled, streamKey }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [camOn, setCamOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
   const [status, setStatus] = useState("idle"); // idle | requesting | ready | denied
+  const [error, setError] = useState(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setStatus("idle");
+      setError(null);
+      return undefined;
+    }
+
     let cancelled = false;
+
+    const useStream = (mediaStream, message = null) => {
+      if (cancelled) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      streamRef.current = mediaStream;
+      setStream(mediaStream);
+      setCamOn(mediaStream.getVideoTracks().some((track) => track.enabled));
+      setMicOn(mediaStream.getAudioTracks().some((track) => track.enabled));
+      setError(message);
+      setStatus("ready");
+    };
 
     const start = async () => {
       setStatus("requesting");
+      setError(null);
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: {
-            channelCount: { ideal: 1 },
-            echoCancellation: true,
-            noiseSuppression: false,
-            autoGainControl: true,
-          },
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
+        const preparedStream = streamKey ? takePreparedMedia(streamKey) : null;
+        if (preparedStream) {
+          useStream(preparedStream.stream, preparedStream.warning);
           return;
         }
-        streamRef.current = stream;
-        setStream(stream);
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        setStatus("ready");
-      } catch {
-        if (!cancelled) setStatus("denied");
+        const { stream: mediaStream, warning } = await acquireLocalMedia();
+        useStream(mediaStream, warning);
+      } catch (mediaError) {
+        if (cancelled) return;
+        setStatus("denied");
+        setError(mediaError.message || "Couldn't access the camera or microphone.");
       }
     };
 
@@ -41,11 +57,11 @@ export const useLocalMedia = ({ enabled }) => {
 
     return () => {
       cancelled = true;
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        setStream(null);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setStream(null);
     };
-  }, [enabled]);
+  }, [enabled, streamKey, attempt]);
 
   // The <video> element is conditionally rendered only when status === "ready".
   // srcObject must be set AFTER that re-render mounts the element.
@@ -71,5 +87,7 @@ export const useLocalMedia = ({ enabled }) => {
     }
   }, []);
 
-  return { videoRef, localStream: stream, camOn, micOn, status, toggleCam, toggleMic };
+  const retry = useCallback(() => setAttempt((previous) => previous + 1), []);
+
+  return { videoRef, localStream: stream, camOn, micOn, status, error, toggleCam, toggleMic, retry };
 };

@@ -8,6 +8,7 @@ import TextArea from "../components/ui/TextArea";
 import Button from "../components/ui/Button";
 import { createInterview } from "../services/interview.service";
 import { ROUTES } from "../constants/routes";
+import { clientOriginIsLoopback, getClientOrigin } from "../lib/clientUrl";
 
 const InterviewNew = () => {
   const { onMenuClick } = useOutletContext();
@@ -45,13 +46,7 @@ const InterviewNew = () => {
 
   const candidateJoinLink = (() => {
     if (!result?.interview?.join_token) return "";
-    if (window.location.origin && !window.location.origin.includes("localhost") && !window.location.origin.includes("127.0.0.1")) {
-      return `${window.location.origin}/interview/join/${result.interview.join_token}`;
-    }
-    if (result.joinLink && !result.joinLink.includes("localhost") && !result.joinLink.includes("127.0.0.1")) {
-      return result.joinLink;
-    }
-    return `${window.location.origin}/interview/join/${result.interview.join_token}`;
+    return `${getClientOrigin()}${ROUTES.join(result.interview.join_token)}`;
   })();
 
   const copyLink = async () => {
@@ -136,6 +131,12 @@ const InterviewNew = () => {
                 Copy
               </button>
             </div>
+            {clientOriginIsLoopback() && (
+              <p className="text-left text-xs text-amber-700">
+                This link uses localhost and will not open on another phone. Set VITE_CLIENT_URL
+                to your trusted HTTPS/LAN client address, then restart the client and copy the link again.
+              </p>
+            )}
             <div className="flex flex-col gap-2.5 sm:flex-row">
               <Button
                 variant="secondary"

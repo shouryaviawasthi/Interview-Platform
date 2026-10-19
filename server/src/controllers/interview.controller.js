@@ -83,6 +83,19 @@ const joinInterview = async (req, res, next) => {
 };
 
 /**
+ * POST /api/interviews/:id/join-link/regenerate
+ * Replace the candidate join token after a link is lost or invalid.
+ */
+const regenerateJoinLink = async (req, res, next) => {
+  try {
+    const interview = await interviewService.regenerateJoinLink(req.params.id, req.user.id);
+    res.status(200).json({ success: true, interview });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * GET /api/interviews/:id
  * Get single interview by ID
  */
@@ -242,6 +255,7 @@ module.exports = {
   getAllInterviews,
   getDashboard,
   joinInterview,
+  regenerateJoinLink,
   getInterviewById,
   updateInterview,
   deleteInterview,

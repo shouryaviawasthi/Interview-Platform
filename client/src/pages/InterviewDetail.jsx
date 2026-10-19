@@ -16,6 +16,7 @@ import {
   FiCalendar,
   FiDownload,
   FiBarChart2,
+  FiRefreshCw,
 } from "react-icons/fi";
 import toast from "react-hot-toast";
 import Topbar from "../components/layout/Topbar";
@@ -28,6 +29,7 @@ import Loader from "../components/ui/Loader";
 import { Spinner } from "../components/ui/Loader";
 import {
   getInterviewById,
+  regenerateJoinLink,
   updateInterview,
   deleteInterview,
   uploadResume,
@@ -43,6 +45,7 @@ import {
 import { ROUTES } from "../constants/routes";
 import { SERVER_URL } from "../lib/axios";
 import { useAuth } from "../context/AuthContext";
+import { clientOriginIsLoopback, getClientOrigin } from "../lib/clientUrl";
 
 const InterviewDetail = () => {
   const { onMenuClick } = useOutletContext();
@@ -68,9 +71,10 @@ const InterviewDetail = () => {
   const [analyticsStatus, setAnalyticsStatus] = useState(null);
   const [generatingReports, setGeneratingReports] = useState(false);
   const [generatingAnalytics, setGeneratingAnalytics] = useState(false);
+  const [regeneratingJoinLink, setRegeneratingJoinLink] = useState(false);
 
   const joinLink = interview
-    ? `${window.location.origin}${ROUTES.join(interview.join_token)}`
+    ? `${getClientOrigin()}${ROUTES.join(interview.join_token)}`
     : "";
 
   const load = async () => {
@@ -170,6 +174,20 @@ const InterviewDetail = () => {
     }
   };
 
+  const handleRegenerateJoinLink = async () => {
+    if (!window.confirm("Create a fresh candidate link? The previous link will stop working.")) return;
+    setRegeneratingJoinLink(true);
+    try {
+      const updated = await regenerateJoinLink(id);
+      setInterview(updated);
+      toast.success("New candidate join link created. Copy and share this link.");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not create a new candidate link.");
+    } finally {
+      setRegeneratingJoinLink(false);
+    }
+  };
+
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -223,6 +241,16 @@ const InterviewDetail = () => {
               <Button variant="secondary" icon={FiCopy} onClick={copyLink}>
                 Copy
               </Button>
+              {!isCandidate && (
+                <Button
+                  variant="secondary"
+                  icon={FiRefreshCw}
+                  isLoading={regeneratingJoinLink}
+                  onClick={handleRegenerateJoinLink}
+                >
+                  New link
+                </Button>
+              )}
               <Button
                 icon={FiVideo}
                 onClick={() => navigate(ROUTES.room(interview.join_token))}
@@ -231,6 +259,17 @@ const InterviewDetail = () => {
               </Button>
             </div>
           </div>
+          {clientOriginIsLoopback() && (
+            <p className="mt-2 text-xs text-amber-700">
+              This link uses localhost and will not open on another phone. Set VITE_CLIENT_URL
+              to your trusted HTTPS/LAN client address, then restart the client and copy the link again.
+            </p>
+          )}
+          {!isCandidate && (
+            <p className="mt-2 text-xs text-ink-400">
+              If a candidate sees “Link not found,” create a new link here and share it with them.
+            </p>
+          )}
           {/* Transcript quick-link */}
           {(transcriptStatus || interview.status === 'completed') && (
             <div className="mt-3 flex items-center justify-between rounded-xl border border-ink-100 bg-lav-50/40 px-4 py-3">

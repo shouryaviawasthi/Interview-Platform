@@ -30,10 +30,20 @@ const createInterview = async (interviewerId, body, clientOrigin = null) => {
     join_token,
   });
 
-  // Build a shareable candidate link: prioritize clientOrigin if not localhost, else process.env.CLIENT_URL
-  const baseUrl = (clientOrigin && !clientOrigin.includes("localhost") && !clientOrigin.includes("127.0.0.1"))
+  const isLoopbackOrigin = (origin) => {
+    if (!origin) return false;
+    try {
+      return ["localhost", "127.0.0.1", "::1"].includes(new URL(origin).hostname);
+    } catch {
+      return true;
+    }
+  };
+  const configuredClientOrigin = process.env.CLIENT_URL;
+  const baseUrl = clientOrigin && !isLoopbackOrigin(clientOrigin)
     ? clientOrigin
-    : (process.env.CLIENT_URL || clientOrigin || "http://localhost:5173");
+    : configuredClientOrigin && !isLoopbackOrigin(configuredClientOrigin)
+      ? configuredClientOrigin
+      : clientOrigin || configuredClientOrigin || "http://localhost:5173";
 
   const joinLink = `${baseUrl.replace(/\/$/, "")}/interview/join/${join_token}`;
 
@@ -129,13 +139,41 @@ const deleteInterview = async (interviewId, interviewerId) => {
  * Public join — find interview by token
  */
 const joinInterview = async (token) => {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token || "")) {
+    const error = new Error("This interview link is invalid or the interview no longer exists.");
+    error.status = 404;
+    throw error;
+  }
+
   const interview = await interviewModel.getInterviewByToken(token);
 
   if (!interview) {
-    throw new Error("Invalid or expired join link");
+    const error = new Error("This interview link is invalid or the interview no longer exists.");
+    error.status = 404;
+    throw error;
   }
 
   return interview;
+};
+
+const regenerateJoinLink = async (interviewId, interviewerId) => {
+  const interview = await interviewModel.getInterviewById(interviewId);
+  if (!interview) {
+    const error = new Error("Interview not found.");
+    error.status = 404;
+    throw error;
+  }
+  if (interview.interviewer_id !== interviewerId) {
+    const error = new Error("Access denied.");
+    error.status = 403;
+    throw error;
+  }
+
+  const updated = await interviewModel.updateJoinToken(interviewId, uuidv4());
+  if (!updated) {
+    throw new Error("Could not create a new candidate join link.");
+  }
+  return updated;
 };
 
 /**
@@ -348,6 +386,7 @@ module.exports = {
   updateInterview,
   deleteInterview,
   joinInterview,
+  regenerateJoinLink,
   uploadResume,
   getDashboard,
   startInterview,

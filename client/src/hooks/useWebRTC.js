@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { getSocket } from "../socket/socket";
 
-/**
- * STUN-only config for development.
- * Add TURN servers here for production reliability.
- */
+const configuredIceServers = import.meta.env.VITE_ICE_SERVERS;
 const rtcConfig = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: configuredIceServers
+    ? JSON.parse(configuredIceServers)
+    : [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun.cloudflare.com:3478" },
+      ],
 };
 
 /**
@@ -28,6 +30,7 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
   const peerConnectionRef = useRef(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [webrtcStatus, setWebrtcStatus] = useState("new");
+  const remoteStreamRef = useRef(null);
   const pendingCandidates = useRef([]);
   const hasCreatedOffer = useRef(false);
   const [pcReady, setPcReady] = useState(false);
@@ -42,10 +45,25 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
     // Create peer connection
     const pc = new RTCPeerConnection(rtcConfig);
     peerConnectionRef.current = pc;
+    remoteStreamRef.current = new MediaStream();
     hasCreatedOffer.current = false;
     pendingCandidates.current = [];
 
     console.log("[WebRTC] PeerConnection created");
+
+    // Negotiate both media directions up front so a slow mobile permission
+    // prompt cannot leave the call permanently without a media section.
+    const outgoingStream = new MediaStream();
+    for (const kind of ["audio", "video"]) {
+      try {
+        pc.addTransceiver(kind, {
+          direction: "sendrecv",
+          streams: [outgoingStream],
+        });
+      } catch (err) {
+        console.warn(`[WebRTC] Could not prepare ${kind} transceiver:`, err.message);
+      }
+    }
 
     // --- Connection state updates ---
     pc.oniceconnectionstatechange = () => {
@@ -57,13 +75,22 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
     // --- Remote tracks ---
     pc.ontrack = (event) => {
       console.log("[WebRTC] Remote track received");
-      setRemoteStream(event.streams[0]);
+      const sourceTracks = event.streams?.[0]?.getTracks() || remoteStreamRef.current.getTracks();
+      if (!sourceTracks.some((track) => track.id === event.track.id)) {
+        sourceTracks.push(event.track);
+      }
+      const stream = new MediaStream(sourceTracks);
+      remoteStreamRef.current = stream;
+      setRemoteStream(stream);
     };
 
     // --- ICE candidates → relay via socket ---
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit("webrtc-ice-candidate", { interviewId, candidate: event.candidate });
+        socket.emit("webrtc-ice-candidate", {
+          interviewId,
+          candidate: event.candidate.toJSON(),
+        });
       }
     };
 
@@ -130,6 +157,7 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
       peerConnectionRef.current = null;
       setPcReady(false);
       setRemoteStream(null);
+      remoteStreamRef.current = null;
       setWebrtcStatus("new");
       pendingCandidates.current = [];
       hasCreatedOffer.current = false;
@@ -141,14 +169,40 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
     const pc = peerConnectionRef.current;
     if (!pc || !localStream) return;
 
-    const existingSenders = pc.getSenders();
-    localStream.getTracks().forEach((track) => {
-      const alreadyAdded = existingSenders.some((s) => s.track === track);
-      if (!alreadyAdded) {
-        pc.addTrack(track, localStream);
-        console.log("[WebRTC] Added local track:", track.kind);
+    let cancelled = false;
+    const attachTracks = async () => {
+      for (const track of localStream.getTracks()) {
+        const transceiver = pc.getTransceivers().find(
+          (item) => item.receiver.track.kind === track.kind
+        );
+        try {
+          if (transceiver) {
+            await transceiver.sender.replaceTrack(track);
+            transceiver.direction = "sendrecv";
+          } else if (!pc.getSenders().some((sender) => sender.track === track)) {
+            pc.addTrack(track, localStream);
+          }
+          if (!cancelled) console.log("[WebRTC] Attached local track:", track.kind);
+        } catch (err) {
+          if (!cancelled) {
+            console.error(`[WebRTC] Failed to attach local ${track.kind} track:`, err);
+          }
+        }
       }
-    });
+
+      if (!cancelled) {
+        pc.getTransceivers().forEach((transceiver) => {
+          if (transceiver.receiver.track.kind === "audio" || transceiver.receiver.track.kind === "video") {
+            transceiver.direction = "sendrecv";
+          }
+        });
+      }
+    };
+
+    attachTracks();
+    return () => {
+      cancelled = true;
+    };
   }, [localStream, pcReady]);
 
   // ─── Effect 3: Interviewer creates offer when candidate is present ───
@@ -160,10 +214,13 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
     if (user?.role !== "interviewer") return;
     if (hasCreatedOffer.current) return;
 
-    const hasCandidate = roomState.participants.some(
+    const hasCandidate = (roomState?.participants || []).some(
       (p) => p.role === "candidate" && p.userId !== user?.id
     );
-    if (!hasCandidate) return;
+    if (!hasCandidate) {
+      hasCreatedOffer.current = false;
+      return;
+    }
 
     hasCreatedOffer.current = true;
 
@@ -185,12 +242,13 @@ export const useWebRTC = ({ interviewId, user, localStream, connectionState, roo
 
   // ─── Effect 4: Clear remote stream when the other person leaves ──────
   useEffect(() => {
-    const otherCount = roomState.participants.filter(
+    const otherCount = (roomState?.participants || []).filter(
       (p) => p.userId !== user?.id
     ).length;
 
     if (otherCount === 0 && remoteStream) {
       setRemoteStream(null);
+      remoteStreamRef.current = new MediaStream();
     }
   }, [roomState.participants, user?.id, remoteStream]);
 

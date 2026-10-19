@@ -63,6 +63,7 @@ const InterviewRoom = () => {
   const [interviewMeta, setInterviewMeta] = useState(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [hasLeft, setHasLeft] = useState(false);
 
   useEffect(() => {
@@ -70,8 +71,15 @@ const InterviewRoom = () => {
       try {
         const data = await joinInterviewByToken(token);
         setInterviewMeta(data);
-      } catch {
-        setNotFound(true);
+      } catch (error) {
+        if (error.response?.status === 404) {
+          setNotFound(true);
+        } else {
+          setLoadError(
+            error.response?.data?.message ||
+            "Couldn't connect to the interview service. Check your connection and reload."
+          );
+        }
       } finally {
         setLoadingMeta(false);
       }
@@ -104,8 +112,19 @@ const InterviewRoom = () => {
     enabled,
   });
 
-  const { videoRef, localStream, camOn, micOn, status: mediaStatus, toggleCam, toggleMic } = useLocalMedia({
+  const {
+    videoRef,
+    localStream,
+    camOn,
+    micOn,
+    status: mediaStatus,
+    error: mediaError,
+    toggleCam,
+    toggleMic,
+    retry: retryMedia,
+  } = useLocalMedia({
     enabled,
+    streamKey: token,
   });
 
   const {
@@ -145,10 +164,11 @@ const InterviewRoom = () => {
   // ─── Audio recording (Phase 3) ────────────────────────────────────────
   // Only the interviewer records. Candidate-side tab has no auth to upload.
   const isLive = sessionStatus === "live";
+  const hasBothMediaTracks = !!localStream?.getAudioTracks().length && !!localStream?.getVideoTracks().length;
   const prevIsLiveRef = useRef(false);
   const prevSessionEndedRef = useRef(false);
 
-  const { startRecording, stopRecording, isRecording } = useAudioRecorder({
+  const { startRecording, updateStreams, stopRecording, isRecording, error: recorderError } = useAudioRecorder({
     onComplete: async (blob, mimeType) => {
       if (!isAuthenticated || !interviewMeta?.id) return;
       try {
@@ -161,6 +181,14 @@ const InterviewRoom = () => {
       }
     },
   });
+
+  useEffect(() => {
+    updateStreams(localStream, remoteStream);
+  }, [localStream, remoteStream, updateStreams]);
+
+  useEffect(() => {
+    if (recorderError) toast.error(recorderError);
+  }, [recorderError]);
 
   // ─── Live Transcript (Phase 6 — Deepgram) ────────────────────────────────
   const [showTranscript, setShowTranscript] = useState(true);
@@ -192,7 +220,7 @@ const InterviewRoom = () => {
   // Start recording when interview goes live
   useEffect(() => {
     if (!isInterviewer) return;
-    if (isLive && !prevIsLiveRef.current && localStream) {
+    if (isLive && !prevIsLiveRef.current) {
       startRecording(localStream, remoteStream);
     }
     prevIsLiveRef.current = isLive;
@@ -227,8 +255,10 @@ const InterviewRoom = () => {
   // ── Handle start interview ─────────────────────────────────────────────
   const handleStart = async () => {
     try {
+      await startRecording(localStream, remoteStream);
       await startSession();
     } catch (err) {
+      stopRecording({ discard: true });
       toast.error(err.message);
     }
   };
@@ -262,15 +292,19 @@ const InterviewRoom = () => {
 
   if (loadingMeta) return <Loader label="Preparing your room" />;
 
-  if (notFound) {
+  if (notFound || loadError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-ink-900 px-6 text-center">
         <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#D14D5B]/15 text-[#F4A0A9]">
           <FiAlertTriangle className="h-6 w-6" />
         </span>
-        <h1 className="font-display text-xl font-semibold text-white">Room not found</h1>
+        <h1 className="font-display text-xl font-semibold text-white">
+          {notFound ? "Room not found" : "Unable to open interview"}
+        </h1>
         <p className="mt-1.5 max-w-sm text-sm text-white/50">
-          This interview link is invalid or has expired.
+          {notFound
+            ? "This interview link is invalid or the interview no longer exists."
+            : loadError}
         </p>
         <Link to={ROUTES.HOME} className="mt-6">
           <Button variant="secondary">Go to homepage</Button>
@@ -377,6 +411,15 @@ const InterviewRoom = () => {
               REC
             </span>
           )}
+          {isInterviewer && isLive && !isRecording && (
+            <button
+              type="button"
+              onClick={() => startRecording(localStream, remoteStream)}
+              className="rounded-full bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-200"
+            >
+              Tap to start recording
+            </button>
+          )}
           {!isLive && sessionStatus && (
             <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium capitalize text-white/60">
               {sessionStatus}
@@ -397,10 +440,17 @@ const InterviewRoom = () => {
         </div>
       )}
 
-      {mediaStatus === "denied" && (
+      {mediaError && (
         <div className="flex items-center gap-2 bg-amber-500/15 px-4 py-2.5 text-sm text-amber-200 sm:px-6">
           <FiAlertTriangle className="h-4 w-4 shrink-0" />
-          Camera &amp; microphone access was denied. You can still see who&#39;s in the room.
+          {mediaError}
+          <button
+            type="button"
+            onClick={retryMedia}
+            className="ml-auto shrink-0 rounded-lg border border-amber-200/30 px-3 py-1 text-xs font-semibold hover:bg-amber-200/10"
+          >
+            Retry camera &amp; mic
+          </button>
         </div>
       )}
 
@@ -441,12 +491,16 @@ const InterviewRoom = () => {
             </div>
             <Button
               icon={FiPlay}
-              disabled={!bothReady || isStarting}
+              disabled={!bothReady || mediaStatus !== "ready" || !hasBothMediaTracks || isStarting}
               isLoading={isStarting}
               onClick={handleStart}
               className="w-full sm:w-auto"
             >
-              {bothReady ? "Start Interview" : "Waiting for candidate to join…"}
+              {!bothReady
+                ? "Waiting for candidate to join…"
+                : mediaStatus !== "ready" || !hasBothMediaTracks
+                  ? "Allow camera & microphone to continue"
+                  : "Start Interview"}
             </Button>
           </div>
         </div>

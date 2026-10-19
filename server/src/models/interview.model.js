@@ -73,6 +73,21 @@ const getInterviewByToken = async (token) => {
 };
 
 /**
+ * Rotate an interview's public candidate join token.
+ */
+const updateJoinToken = async (id, join_token) => {
+  const query = `
+    UPDATE interviews
+    SET join_token = $1, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $2
+    RETURNING *
+  `;
+
+  const result = await pool.query(query, [join_token, id]);
+  return result.rows[0];
+};
+
+/**
  * Update interview details
  */
 const updateInterview = async (id, { candidate_name, candidate_email, job_description }) => {
@@ -340,6 +355,7 @@ module.exports = {
   getInterviewsByInterviewer,
   getInterviewById,
   getInterviewByToken,
+  updateJoinToken,
   updateInterview,
   deleteInterview,
   getDashboardStats,

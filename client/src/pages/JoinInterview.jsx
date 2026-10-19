@@ -8,6 +8,7 @@ import StatusBadge from "../components/ui/StatusBadge";
 import Loader from "../components/ui/Loader";
 import { joinInterviewByToken } from "../services/interview.service";
 import { ROUTES } from "../constants/routes";
+import { acquireLocalMedia, savePreparedMedia } from "../lib/localMedia";
 
 const JoinInterview = () => {
   const { token } = useParams();
@@ -15,44 +16,76 @@ const JoinInterview = () => {
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [name, setName] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [mediaError, setMediaError] = useState(null);
+  const tokenLooksTruncated = token?.length !== 36;
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       try {
         const data = await joinInterviewByToken(token);
+        if (cancelled) return;
         setInterview(data);
         setName(data.candidate_name || "");
-      } catch {
-        setNotFound(true);
+      } catch (error) {
+        if (cancelled) return;
+        if (error.response?.status === 404) {
+          setNotFound(true);
+        } else {
+          setLoadError(
+            error.response?.data?.message ||
+            "Couldn't connect to the interview service. Check your connection and try again."
+          );
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
-  const handleJoin = (e) => {
+  const handleJoin = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Please enter your name to continue");
       return;
     }
-    sessionStorage.setItem(`aip_candidate_name_${token}`, name.trim());
-    navigate(ROUTES.room(token));
+    setJoining(true);
+    setMediaError(null);
+    try {
+      const { stream, warning } = await acquireLocalMedia();
+      savePreparedMedia(token, stream, warning);
+      sessionStorage.setItem(`aip_candidate_name_${token}`, name.trim());
+      navigate(ROUTES.room(token));
+    } catch (error) {
+      setMediaError(error.message || "Please allow camera and microphone access to join.");
+      setJoining(false);
+    }
   };
 
   if (loading) return <Loader label="Looking up your interview" />;
 
-  if (notFound) {
+  if (notFound || loadError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-lav-50 px-6 text-center">
         <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--color-status-cancelled-bg)] text-[color:var(--color-status-cancelled)]">
           <FiAlertTriangle className="h-6 w-6" />
         </span>
-        <h1 className="font-display text-xl font-semibold text-ink-900">Link not found</h1>
+        <h1 className="font-display text-xl font-semibold text-ink-900">
+          {notFound ? "Link not found" : "Unable to open interview"}
+        </h1>
         <p className="mt-1.5 max-w-sm text-sm text-ink-400">
-          This join link is invalid or has expired. Please check the link your interviewer sent you.
+          {notFound
+            ? tokenLooksTruncated
+              ? "This link appears incomplete. Ask the interviewer to open the interview details, create a new link, and send the complete URL."
+              : "This interview link is invalid or the interview no longer exists. Ask the interviewer to create and share a new link."
+            : loadError}
         </p>
         <Link to={ROUTES.HOME} className="mt-6">
           <Button variant="secondary">Go to homepage</Button>
@@ -105,12 +138,20 @@ const JoinInterview = () => {
             onChange={(e) => setName(e.target.value)}
             placeholder="Your full name"
           />
-          <Button type="submit" icon={FiVideo} className="w-full">
-            Join interview room
+          <Button type="submit" icon={FiVideo} isLoading={joining} className="w-full">
+            {joining ? "Checking camera and microphone…" : "Allow camera & mic and join"}
           </Button>
         </form>
+        {mediaError && (
+          <p role="alert" className="mt-3 text-center text-sm text-red-600">{mediaError}</p>
+        )}
+        {joining && (
+          <p className="mt-3 text-center text-xs text-ink-500">
+            Allow both camera and microphone when your browser asks. Your preview starts after you join.
+          </p>
+        )}
         <p className="mt-4 text-center text-xs text-ink-400">
-          You'll get a quick camera &amp; mic check before entering the room.
+          Camera and microphone access is needed for the live interview. Mobile browsers require HTTPS.
         </p>
       </div>
     </div>

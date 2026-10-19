@@ -16,6 +16,7 @@ router.get("/dashboard", protect, interviewController.getDashboard);
 // CRUD
 router.post("/",     protect, interviewController.createInterview);
 router.get("/",      protect, interviewController.getAllInterviews);
+router.post("/:id/join-link/regenerate", protect, interviewController.regenerateJoinLink);
 router.get("/:id",   protect, interviewController.getInterviewById);
 router.put("/:id",   protect, interviewController.updateInterview);
 router.delete("/:id",protect, interviewController.deleteInterview);
