@@ -1,0 +1,188 @@
+----ngrok setup-----
+I'll guide you through setting up the AI Interview Platform with ngrok to make it accessible over the internet. This is perfect for testing with real candidates or interviewers remotely.
+
+Step 1: Install and Setup ngrok
+Install ngrok
+Download ngrok: Go to ngrok.com and create a free account
+Download the Windows executable and extract it to a folder like C:\ngrok\
+Add to PATH (optional but recommended):
+Add C:\ngrok\ to your Windows PATH environment variable
+Or use the full path when running commands
+Authenticate ngrok
+bash
+
+# Get your auth token from ngrok dashboard and run:
+ngrok config add-authtoken YOUR_AUTH_TOKEN_HERE
+Step 2: Project Setup (Same as Before)
+Follow the previous setup steps first:
+
+Install dependencies in both server and client folders
+Setup PostgreSQL database and run migrations
+Get API keys (Deepgram and Groq)
+Step 3: Configure for ngrok
+Server Configuration (
+.env
+)
+env
+
+PORT=5000
+NODE_ENV=development
+
+# DATABASE CONFIG
+DATABASE_URL=postgresql://username:password@host:port/database
+
+# JWT CONFIG
+JWT_SECRET=your_long_random_secret_here
+JWT_EXPIRES_IN=1d
+
+# API KEYS
+DEEPGRAM_API_KEY=your_deepgram_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# IMPORTANT: Don't set CLIENT_URL yet - we'll update this after ngrok is running
+Client Configuration (
+.env
+)
+env
+
+# We'll update this after getting the ngrok URL
+VITE_API_URL=http://localhost:5000/api
+Step 4: Start the Applications with ngrok
+You'll need 3 terminals:
+
+Terminal 1: Start the Backend Server
+bash
+
+cd server
+npm run dev
+Terminal 2: Start ngrok for Backend API
+bash
+
+# Expose the backend API (port 5000) to the internet
+ngrok http 5000
+Copy the HTTPS URL from ngrok output (e.g., https://abc123.ngrok.io)
+
+Terminal 3: Update Client Config and Start
+bash
+
+cd client
+
+# Update the .env file with your ngrok backend URL
+# Edit client/.env to:
+Update 
+.env
+:
+
+env
+
+VITE_API_URL=https://YOUR_NGROK_BACKEND_URL.ngrok.io/api
+bash
+
+# Start the client
+npm run dev
+Terminal 4: Start ngrok for Frontend (New Terminal)
+bash
+
+# Expose the frontend (port 5173) to the internet
+ngrok http 5173
+Copy the HTTPS URL for the frontend (e.g., https://xyz789.ngrok.io)
+
+Step 5: Update Backend CORS Configuration
+Now update your backend to allow the frontend ngrok URL:
+
+Update 
+.env
+:
+env
+
+# Add the frontend ngrok URL
+CLIENT_URL=https://YOUR_NGROK_FRONTEND_URL.ngrok.io
+Restart the backend server:
+bash
+
+# In Terminal 1 (server terminal)
+# Press Ctrl+C to stop, then:
+npm run dev
+Step 6: Access Your Application
+Main Application: https://YOUR_NGROK_FRONTEND_URL.ngrok.io
+API Endpoints: https://YOUR_NGROK_BACKEND_URL.ngrok.io/api
+Complete Example Setup
+Let's say ngrok gives you these URLs:
+
+Backend: https://abc123.ngrok.io
+Frontend: https://xyz789.ngrok.io
+Your config files should look like:
+
+
+.env
+:
+env
+
+PORT=5000
+NODE_ENV=development
+CLIENT_URL=https://xyz789.ngrok.io
+
+DATABASE_URL=postgresql://username:password@host:port/database
+JWT_SECRET=your_secret_here
+JWT_EXPIRES_IN=1d
+
+DEEPGRAM_API_KEY=your_deepgram_key
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL=llama-3.3-70b-versatile
+
+.env
+:
+env
+
+VITE_API_URL=https://abc123.ngrok.io/api
+Step 7: Test the Setup
+Access your app: Go to https://xyz789.ngrok.io
+Register an interviewer account
+Create an interview and get the candidate join link
+Share the join link - it will look like: https://xyz789.ngrok.io/interview/join/TOKEN
+Test the interview flow with someone else or in a different browser
+Important Notes for ngrok Usage
+Security Considerations
+Free ngrok URLs change each time you restart ngrok
+Use HTTPS URLs only - WebRTC requires secure context
+Don't share ngrok URLs publicly - they bypass your firewall
+WebRTC Configuration
+The app should work with WebRTC over HTTPS via ngrok because:
+
+ngrok provides valid HTTPS certificates
+The existing STUN server configuration should work
+If you have connection issues, you may need TURN servers for restrictive networks
+Production Deployment
+For permanent deployment, consider:
+
+Custom domain with proper SSL certificates
+Cloud hosting (AWS, Heroku, Vercel, etc.)
+Professional TURN servers for reliable WebRTC
+Environment variables management
+ngrok Pro Features (Optional)
+If you upgrade to ngrok Pro:
+
+Custom subdomains: ngrok http 5000 --subdomain=myapp-api
+Reserved domains: Keep the same URLs across restarts
+Password protection: Add basic auth to your tunnels
+Troubleshooting ngrok Issues
+CORS Errors
+Ensure CLIENT_URL in server/.env matches your frontend ngrok URL exactly
+Restart the backend server after changing environment variables
+Connection Refused
+Make sure both local servers (5000 and 5173) are running before starting ngrok
+Check that ngrok is pointing to the correct ports
+SSL/HTTPS Issues
+Always use the HTTPS URLs that ngrok provides
+Don't mix HTTP and HTTPS in your configuration
+ngrok Tunnel Errors
+bash
+
+# Check ngrok status
+ngrok status
+
+# View tunnel details
+ngrok http 5000 --log=stdout
+Your interview platform should now be accessible from anywhere on the internet! Share the frontend ngrok URL with remote interviewers and candidates to test the full workflow.
+
